@@ -36,12 +36,13 @@ async def _send_welcome(client: Client, chat_id: int, chat_title: str, user) -> 
             except (KeyError, ValueError):
                 caption = settings.welcome_text
         try:
-            await client.copy_message(
+            sent = await client.copy_message(
                 chat_id=chat_id,
                 from_chat_id=settings.welcome_msg_chat_id,
                 message_id=settings.welcome_msg_id,
                 caption=caption,
             )
+            asyncio.create_task(auto_delete(sent, 60))
             return
         except RPCError:
             pass  # Fall through to text welcome
@@ -58,7 +59,8 @@ async def _send_welcome(client: Client, chat_id: int, chat_title: str, user) -> 
     except (KeyError, ValueError):
         text = welcome_text
 
-    await client.send_message(chat_id=chat_id, text=text)
+    sent = await client.send_message(chat_id=chat_id, text=text)
+    asyncio.create_task(auto_delete(sent, 60))
 
 
 @handle_errors
