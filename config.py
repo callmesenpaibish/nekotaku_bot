@@ -24,7 +24,7 @@ OWNER_ID: int = int(_require("OWNER_ID"))
 
 # ── Database ──────────────────────────────────────────────────────────────────
 DATABASE_URL: str = os.getenv(
-    "DATABASE_URL", "sqlite+aiosqlite:///data/tgbot.db"
+    "TGBOT_DATABASE_URL", "sqlite+aiosqlite:///data/tgbot.db"
 )
 
 # ── Timings ───────────────────────────────────────────────────────────────────

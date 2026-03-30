@@ -1,50 +1,66 @@
-# TGBot — Telegram Group Moderation Bot
+# Telegram Moderation Bot
 
-## Overview
-A production-ready, modular Telegram group moderation bot built with Python 3.12. Provides automated and manual tools for managing Telegram communities including anti-spam, welcome messages, user warns, and comprehensive moderation commands (mute, kick, ban).
+A production-ready, modular Telegram group moderation bot built with Python.
+
+## Features
+- **Moderation**: Mute, kick, ban (with timed variants), and a warning system with configurable auto-actions
+- **Anti-Spam**: Flood detection, unauthorized link blocking, and forwarded message filtering
+- **Customization**: Custom command prefixes, welcome messages, interactive settings menu
+- **Logging**: Structured moderation logs sent to a dedicated Telegram channel
+- **Access Control**: Multi-tiered permission system (Owner, Full Admin, Limited Admin, Group Admin, User)
 
 ## Tech Stack
 - **Language**: Python 3.12
-- **Framework**: python-telegram-bot v21.3 (async, polling mode)
-- **Database**: PostgreSQL (Replit managed) via SQLAlchemy 2.0 + asyncpg
-- **Config**: python-dotenv for environment variables
+- **Framework**: python-telegram-bot v21.3 (async, Application/Builder pattern)
+- **Database**: SQLite via SQLAlchemy 2.0 + aiosqlite (async)
+- **Config**: python-dotenv for environment variable management
 
 ## Project Structure
 ```
-main.py              — Entry point; builds app, registers handlers, starts polling
-config.py            — Central config loaded from environment variables
-requirements.txt     — Python dependencies
+main.py              # Entry point — builds and starts the bot
+config.py            # Centralized config from environment variables
 database/
-  engine.py          — Async SQLAlchemy engine setup (handles URL normalization)
-  models.py          — ORM models (GroupSettings, UserWarning, etc.)
-  repository.py      — CRUD data access layer
-handlers/            — Command handlers (moderation, antispam, welcome, etc.)
-services/            — Business logic (spam detection, audit logging)
-middleware/          — Permission checks and role resolution
-keyboards/           — Inline menu definitions
-utils/               — Helper functions and decorators
+  engine.py          # Async SQLAlchemy engine and session factory
+  models.py          # ORM models (GroupSettings, UserWarning, ActionLog, etc.)
+  repository.py      # CRUD database access layer
+handlers/            # Telegram command/message handlers grouped by feature
+  moderation.py      # Ban, kick, mute, warn commands
+  antispam.py        # Flood, link, forward detection
+  welcome.py         # Welcome/goodbye messages
+  settings.py        # Interactive settings menu
+  locks.py           # Message type locks
+  admin_tools.py     # Admin utilities
+  owner.py           # Owner-only commands
+  help.py            # Help command
+  errors.py          # Global error handler
+services/            # Business logic (moderation_service, spam_service)
+middleware/          # Permission resolution (permissions.py)
+keyboards/           # Inline keyboard builders (menus.py)
+utils/               # Decorators, time parsing, shared helpers
+data/                # SQLite database file (auto-created at runtime)
 ```
 
-## Required Secrets
+## Required Environment Variables (Secrets)
 - `BOT_TOKEN` — Telegram bot token from @BotFather
-- `OWNER_ID` — Telegram numeric user ID of the bot owner
+- `OWNER_ID` — Your Telegram user ID (numeric)
 
-## Environment Variables (Optional)
-- `BOT_USERNAME` — Bot username without @
-- `DATABASE_URL` — Auto-provided by Replit (PostgreSQL). Defaults to SQLite for local dev.
+## Optional Environment Variables
+- `TGBOT_DATABASE_URL` — Override the database URL (default: `sqlite+aiosqlite:///data/tgbot.db`)
+- `BOT_USERNAME` — Bot username (auto-detected if not set)
+- `LOG_CHANNEL_ID` — Telegram channel ID for moderation logs
+- `WEBHOOK_URL` — Set to enable webhook mode instead of polling
+- `WEBHOOK_PORT` — Port for webhook (default: 8443)
 - `AUTO_DELETE_CMD_DELAY` — Seconds before deleting command messages (default: 3)
 - `AUTO_DELETE_EDITED_DELAY` — Seconds before deleting edited messages (default: 25)
-- `FLOOD_RATE` — Max messages per flood window (default: 5)
+- `FLOOD_RATE` — Messages per window to trigger flood detection (default: 5)
 - `FLOOD_WINDOW` — Flood detection window in seconds (default: 5)
-- `SPAM_MUTE_DURATION` — Auto-mute duration on spam in seconds (default: 600)
-- `WEBHOOK_URL` — Set to enable webhook mode (leave empty for polling)
-- `WEBHOOK_PORT` — Webhook port (default: 8443)
-- `LOG_CHANNEL_ID` — Optional Telegram channel ID for action logs
+- `SPAM_MUTE_DURATION` — Duration of spam mute in seconds (default: 600)
 
-## Running
-The bot runs via the "Start application" workflow: `python main.py`
+## Running the Bot
+The bot runs in **long polling** mode by default. Set `WEBHOOK_URL` to switch to webhook mode.
 
-## Key Notes
-- Uses long polling by default (no webhook URL needed in dev)
-- `database/engine.py` handles PostgreSQL URL normalization (converts `postgresql://` → `postgresql+asyncpg://` and strips `sslmode` param for asyncpg compatibility)
-- The bot notifies the owner on startup via Telegram DM
+The SQLite database is automatically created in the `data/` directory on first run.
+
+## Notes
+- `TGBOT_DATABASE_URL` is used instead of `DATABASE_URL` to avoid conflict with Replit's built-in PostgreSQL secret
+- The bot sends a startup notification to the owner's DM when it comes online
