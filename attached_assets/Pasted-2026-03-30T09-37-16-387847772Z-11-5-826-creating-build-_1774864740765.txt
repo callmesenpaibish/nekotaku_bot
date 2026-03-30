@@ -1,0 +1,50 @@
+2026-03-30T09:37:16.387847772Z #11 5.826       creating build/lib.linux-x86_64-cpython-312/tests/ctr
+2026-03-30T09:37:16.387849702Z #11 5.826       copying tests/ctr/__init__.py -> build/lib.linux-x86_64-cpython-312/tests/ctr
+2026-03-30T09:37:16.387851632Z #11 5.826       copying tests/ctr/test_ctr.py -> build/lib.linux-x86_64-cpython-312/tests/ctr
+2026-03-30T09:37:16.387853573Z #11 5.826       creating build/lib.linux-x86_64-cpython-312/tests/cbc
+2026-03-30T09:37:16.387875914Z #11 5.826       copying tests/cbc/__init__.py -> build/lib.linux-x86_64-cpython-312/tests/cbc
+2026-03-30T09:37:16.387878204Z #11 5.826       copying tests/cbc/test_cbc.py -> build/lib.linux-x86_64-cpython-312/tests/cbc
+2026-03-30T09:37:16.387880164Z #11 5.826       running build_ext
+2026-03-30T09:37:16.387882094Z #11 5.826       building 'tgcrypto' extension
+2026-03-30T09:37:16.387884044Z #11 5.826       creating build/temp.linux-x86_64-cpython-312/tgcrypto
+2026-03-30T09:37:16.387886794Z #11 5.826       gcc -fno-strict-overflow -Wsign-compare -DNDEBUG -g -O3 -Wall -fPIC -I/usr/local/include/python3.12 -c tgcrypto/aes256.c -o build/temp.linux-x86_64-cpython-312/tgcrypto/aes256.o
+2026-03-30T09:37:16.387888784Z #11 5.826       In file included from tgcrypto/aes256.h:21,
+2026-03-30T09:37:16.387890764Z #11 5.826                        from tgcrypto/aes256.c:21:
+2026-03-30T09:37:16.387892795Z #11 5.826       /usr/lib/gcc/x86_64-linux-gnu/14/include/stdint.h:9:16: fatal error: stdint.h: No such file or directory
+2026-03-30T09:37:16.387894775Z #11 5.826           9 | # include_next <stdint.h>
+2026-03-30T09:37:16.387896715Z #11 5.826             |                ^~~~~~~~~~
+2026-03-30T09:37:16.387898645Z #11 5.826       compilation terminated.
+2026-03-30T09:37:16.387900605Z #11 5.826       error: command '/usr/bin/gcc' failed with exit code 1
+2026-03-30T09:37:16.387906735Z #11 5.826       [end of output]
+2026-03-30T09:37:16.387908745Z #11 5.826   
+2026-03-30T09:37:16.387910785Z #11 5.826   note: This error originates from a subprocess, and is likely not a problem with pip.
+2026-03-30T09:37:16.387912745Z #11 5.827   ERROR: Failed building wheel for tgcrypto
+2026-03-30T09:37:16.387914666Z #11 5.827 Successfully built pyaes
+2026-03-30T09:37:16.387916626Z #11 5.827 Failed to build tgcrypto
+2026-03-30T09:37:16.387918586Z #11 5.918 
+2026-03-30T09:37:16.387920556Z #11 5.918 [notice] A new release of pip is available: 25.0.1 -> 26.0.1
+2026-03-30T09:37:16.387922486Z #11 5.918 [notice] To update, run: pip install --upgrade pip
+2026-03-30T09:37:16.387924486Z #11 5.918 ERROR: Failed to build installable wheels for some pyproject.toml based projects (tgcrypto)
+2026-03-30T09:37:16.414394333Z #11 ERROR: process "/bin/sh -c pip install --no-cache-dir -r requirements.txt" did not complete successfully: exit code: 1
+2026-03-30T09:37:16.440550032Z ------
+2026-03-30T09:37:16.440566483Z  > [5/8] RUN pip install --no-cache-dir -r requirements.txt:
+2026-03-30T09:37:16.440571183Z 5.826       [end of output]
+2026-03-30T09:37:16.440574484Z 5.826   
+2026-03-30T09:37:16.440578064Z 5.826   note: This error originates from a subprocess, and is likely not a problem with pip.
+2026-03-30T09:37:16.440581324Z 5.827   ERROR: Failed building wheel for tgcrypto
+2026-03-30T09:37:16.440584534Z 5.827 Successfully built pyaes
+2026-03-30T09:37:16.440587584Z 5.827 Failed to build tgcrypto
+2026-03-30T09:37:16.440590615Z 5.918 
+2026-03-30T09:37:16.440594375Z 5.918 [notice] A new release of pip is available: 25.0.1 -> 26.0.1
+2026-03-30T09:37:16.440598175Z 5.918 [notice] To update, run: pip install --upgrade pip
+2026-03-30T09:37:16.440603885Z 5.918 ERROR: Failed to build installable wheels for some pyproject.toml based projects (tgcrypto)
+2026-03-30T09:37:16.440608765Z ------
+2026-03-30T09:37:16.441226018Z Dockerfile:12
+2026-03-30T09:37:16.441242079Z --------------------
+2026-03-30T09:37:16.441248829Z   10 |     # Install Python dependencies first (layer cache)
+2026-03-30T09:37:16.44125487Z   11 |     COPY requirements.txt .
+2026-03-30T09:37:16.44125995Z   12 | >>> RUN pip install --no-cache-dir -r requirements.txt
+2026-03-30T09:37:16.44126472Z   13 |     
+2026-03-30T09:37:16.44126952Z   14 |     # Copy source
+2026-03-30T09:37:16.441274611Z --------------------
+2026-03-30T09:37:16.441283371Z error: failed to solve: process "/bin/sh -c pip install --no-cache-dir -r requirements.txt" did not complete successfully: exit code: 1
