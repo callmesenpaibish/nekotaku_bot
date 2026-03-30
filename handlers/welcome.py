@@ -4,6 +4,7 @@ import asyncio
 from pyrogram import Client, filters
 from pyrogram.types import Message, ChatMemberUpdated
 from pyrogram.enums import ChatMemberStatus
+from pyrogram.errors import RPCError
 from pyrogram.handlers import MessageHandler, ChatMemberUpdatedHandler
 
 from database.engine import AsyncSessionLocal
@@ -33,6 +34,24 @@ async def handle_member_update(client: Client, member: ChatMemberUpdated) -> Non
 
         if not settings.welcome_enabled:
             return
+
+        # If a template message is stored, copy it; otherwise send text
+        if settings.welcome_msg_id and settings.welcome_msg_chat_id:
+            try:
+                await client.copy_message(
+                    chat_id=chat.id,
+                    from_chat_id=settings.welcome_msg_chat_id,
+                    message_id=settings.welcome_msg_id,
+                    caption=(settings.welcome_text or "").format(
+                        mention=mention_html(user),
+                        name=user.first_name,
+                        group=chat.title or "this group",
+                        id=user.id,
+                    ) if settings.welcome_text else None,
+                )
+                return
+            except RPCError:
+                pass  # Fall through to text welcome
 
         welcome_text = settings.welcome_text or cfg.DEFAULT_WELCOME
         text = welcome_text.format(

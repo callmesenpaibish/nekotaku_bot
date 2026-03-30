@@ -38,20 +38,23 @@ def help_back_button() -> InlineKeyboardMarkup:
 def settings_menu(chat_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("👋 Welcome",     callback_data=f"cfg:{chat_id}:welcome"),
-            InlineKeyboardButton("🛡 Anti-Spam",   callback_data=f"cfg:{chat_id}:antispam"),
+            InlineKeyboardButton("👋 Welcome",      callback_data=f"cfg:{chat_id}:welcome"),
+            InlineKeyboardButton("🛡 Anti-Spam",    callback_data=f"cfg:{chat_id}:antispam"),
         ],
         [
-            InlineKeyboardButton("🔗 Anti-Link",   callback_data=f"cfg:{chat_id}:antilink"),
-            InlineKeyboardButton("🌊 Anti-Flood",  callback_data=f"cfg:{chat_id}:flood"),
+            InlineKeyboardButton("🔗 Anti-Link",    callback_data=f"cfg:{chat_id}:antilink"),
+            InlineKeyboardButton("🌊 Anti-Flood",   callback_data=f"cfg:{chat_id}:flood"),
         ],
         [
-            InlineKeyboardButton("⚠️ Warn Limit",  callback_data=f"cfg:{chat_id}:warnlimit"),
-            InlineKeyboardButton("🔒 Locks",        callback_data=f"cfg:{chat_id}:locks"),
+            InlineKeyboardButton("⚠️ Warn Limit",   callback_data=f"cfg:{chat_id}:warnlimit"),
+            InlineKeyboardButton("🔒 Locks",         callback_data=f"cfg:{chat_id}:locks"),
         ],
         [
-            InlineKeyboardButton("📋 Logging",     callback_data=f"cfg:{chat_id}:logging"),
-            InlineKeyboardButton("🗑 Auto-Delete",  callback_data=f"cfg:{chat_id}:autodelete"),
+            InlineKeyboardButton("📋 Logging",      callback_data=f"cfg:{chat_id}:logging"),
+            InlineKeyboardButton("🗑 Auto-Delete",   callback_data=f"cfg:{chat_id}:autodelete"),
+        ],
+        [
+            InlineKeyboardButton("✏️ Edited Msgs",  callback_data=f"cfg:{chat_id}:editedmsg"),
         ],
         [InlineKeyboardButton("« Close", callback_data="cfg:close")],
     ])

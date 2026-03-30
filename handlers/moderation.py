@@ -321,6 +321,87 @@ async def cmd_del(client: Client, message: Message) -> None:
 @handle_errors
 @group_admin_only
 @group_only
+async def cmd_purge(client: Client, message: Message) -> None:
+    """
+    /purge        — reply to a message; deletes from that message up to (and including) the command
+    /purge <n>    — deletes the last n messages (including the command message)
+    """
+    args = message.command[1:] if message.command else []
+    chat_id = message.chat.id
+
+    if message.reply_to_message:
+        from_id = message.reply_to_message.id
+        to_id = message.id
+        ids = list(range(from_id, to_id + 1))
+    elif args and args[0].isdigit():
+        n = max(1, min(int(args[0]), 100))
+        ids = list(range(message.id - n, message.id + 1))
+    else:
+        await _reply_and_autodelete(
+            message,
+            "❌ Usage:\n"
+            "• Reply to a message + /purge  — deletes from that message to this one\n"
+            "• /purge &lt;n&gt;  — deletes the last n messages",
+        )
+        return
+
+    # Telegram can only delete 100 messages at a time
+    deleted_total = 0
+    for chunk_start in range(0, len(ids), 100):
+        chunk = ids[chunk_start:chunk_start + 100]
+        try:
+            count = await client.delete_messages(chat_id, chunk)
+            deleted_total += count
+        except RPCError:
+            pass
+
+    notif = await client.send_message(chat_id, f"🗑 Purged <b>{deleted_total}</b> messages.")
+    asyncio.create_task(auto_delete(notif, 3))
+
+
+@handle_errors
+@group_admin_only
+@group_only
+async def cmd_purgeme(client: Client, message: Message) -> None:
+    """
+    /purgeme <n>  — deletes the last n messages from the requesting admin
+    """
+    args = message.command[1:] if message.command else []
+    if not args or not args[0].isdigit():
+        await _reply_and_autodelete(message, "❌ Usage: /purgeme &lt;n&gt;")
+        return
+
+    n = max(1, min(int(args[0]), 200))
+    user_id = message.from_user.id
+    chat_id = message.chat.id
+    collected = []
+
+    async for msg in client.get_chat_history(chat_id, limit=n * 3 + 10):
+        if msg.from_user and msg.from_user.id == user_id:
+            collected.append(msg.id)
+        if len(collected) >= n:
+            break
+
+    # include the command itself
+    if message.id not in collected:
+        collected.append(message.id)
+
+    deleted_total = 0
+    for chunk_start in range(0, len(collected), 100):
+        chunk = collected[chunk_start:chunk_start + 100]
+        try:
+            count = await client.delete_messages(chat_id, chunk)
+            deleted_total += count
+        except RPCError:
+            pass
+
+    notif = await client.send_message(chat_id, f"🗑 Purged <b>{deleted_total}</b> of your messages.")
+    asyncio.create_task(auto_delete(notif, 3))
+
+
+@handle_errors
+@group_admin_only
+@group_only
 async def cmd_stats(client: Client, message: Message) -> None:
     args = message.command[1:] if message.command else []
     target, _ = await _resolve_target(client, message, args)
@@ -406,5 +487,7 @@ def register(app: Client) -> None:
     app.add_handler(MessageHandler(cmd_resetwarn, filters.command("resetwarn") & filters.group))
     app.add_handler(MessageHandler(cmd_warns,     filters.command("warns")     & filters.group))
     app.add_handler(MessageHandler(cmd_del,       filters.command("del")       & filters.group))
+    app.add_handler(MessageHandler(cmd_purge,     filters.command("purge")     & filters.group))
+    app.add_handler(MessageHandler(cmd_purgeme,   filters.command("purgeme")   & filters.group))
     app.add_handler(MessageHandler(cmd_stats,     filters.command("stats")     & filters.group))
     app.add_handler(MessageHandler(_prefix_handler, filters.group & filters.text), group=10)

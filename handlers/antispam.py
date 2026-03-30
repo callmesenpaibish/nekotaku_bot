@@ -51,7 +51,7 @@ async def _handle_incoming(client: Client, message: Message) -> None:
                 notif = await client.send_message(
                     chat_id=chat.id,
                     text=(
-                        f"🚫 {mention_html(user)} has been muted for flooding.\n"
+                        f"🚫 {mention_html(user)} muted for flooding.\n"
                         f"Duration: {duration // 60}m"
                     ),
                 )
@@ -76,7 +76,7 @@ async def _handle_incoming(client: Client, message: Message) -> None:
         )
         return
 
-    # ── Anti-forward check ────────────────────────────────────────────────────
+    # ── Anti-forward check (can't be done via Telegram permissions) ───────────
     is_forward = bool(
         message.forward_from
         or message.forward_from_chat
@@ -91,28 +91,17 @@ async def _handle_incoming(client: Client, message: Message) -> None:
         asyncio.create_task(auto_delete(notif, settings.delete_cmd_delay))
         return
 
-    # ── Locked content types ──────────────────────────────────────────────────
+    # ── Forward lock (from locks system) — still needs message-level check ────
     locked = set((settings.locked_types or "").split(","))
     locked.discard("")
-
-    content_map = {
-        "sticker":  bool(message.sticker),
-        "image":    bool(message.photo),
-        "video":    bool(message.video),
-        "audio":    bool(message.audio or message.voice),
-        "document": bool(message.document),
-        "forward":  is_forward,
-    }
-
-    for content_type, detected in content_map.items():
-        if content_type in locked and detected:
-            await safe_delete(message)
-            notif = await client.send_message(
-                chat_id=chat.id,
-                text=f"🔒 {mention_html(user)}, <b>{content_type}s</b> are locked in this group.",
-            )
-            asyncio.create_task(auto_delete(notif, settings.delete_cmd_delay))
-            return
+    if "forward" in locked and is_forward:
+        await safe_delete(message)
+        notif = await client.send_message(
+            chat_id=chat.id,
+            text=f"🔒 {mention_html(user)}, forwarded messages are locked.",
+        )
+        asyncio.create_task(auto_delete(notif, settings.delete_cmd_delay))
+        return
 
 
 @handle_errors
@@ -124,19 +113,15 @@ async def _handle_edited(client: Client, message: Message) -> None:
     async with AsyncSessionLocal() as session:
         settings = await get_group_settings(session, chat.id)
 
+    if not settings.delete_edited_msg:
+        return
+
     delay = settings.delete_edited_delay
     if delay <= 0:
+        await safe_delete(message)
         return
 
     asyncio.create_task(auto_delete(message, delay))
-
-    await send_log(
-        client, chat.id, "delete_edited",
-        target_user_id=message.from_user.id if message.from_user else None,
-        target_username=message.from_user.username if message.from_user else None,
-        extra=f"Edited message deleted after {delay}s",
-        auto=True,
-    )
 
 
 @handle_errors
@@ -226,12 +211,13 @@ def register(app: Client) -> None:
             filters.group & ~filters.command([
                 "mute","tmute","unmute","kick","ban","tban","unban",
                 "warn","dwarn","unwarn","resetwarn","warns","del","stats",
-                "lock","unlock","locks","antispam","antilink","antiflood",
-                "floodrate","floodwindow","settings","rules","setrules",
-                "setwelcome","setwarnlimit","setwarnaction","setprefix",
-                "setlogchannel","setcmddelay","setediteddelay","promote",
-                "demote","pin","unpin","adminlist","adminpanel","addadmin",
-                "removeadmin","listadmins","start","help",
+                "purge","purgeme",
+                "lock","unlock","locks","restrict","unrestrict",
+                "antispam","antilink","antiflood","floodrate","floodwindow",
+                "settings","rules","setrules","setwelcome","setwarnlimit",
+                "setwarnaction","setprefix","setlogchannel","setcmddelay",
+                "setediteddelay","promote","demote","pin","unpin","adminlist",
+                "adminpanel","addadmin","removeadmin","listadmins","start","help",
             ]),
         ),
         group=5,
@@ -240,9 +226,8 @@ def register(app: Client) -> None:
         EditedMessageHandler(_handle_edited, filters.group),
         group=5,
     )
-
-    app.add_handler(MessageHandler(cmd_antispam,   filters.command("antispam")   & filters.group))
-    app.add_handler(MessageHandler(cmd_antilink,   filters.command("antilink")   & filters.group))
-    app.add_handler(MessageHandler(cmd_antiflood,  filters.command("antiflood")  & filters.group))
-    app.add_handler(MessageHandler(cmd_floodrate,  filters.command("floodrate")  & filters.group))
+    app.add_handler(MessageHandler(cmd_antispam,    filters.command("antispam")   & filters.group))
+    app.add_handler(MessageHandler(cmd_antilink,    filters.command("antilink")   & filters.group))
+    app.add_handler(MessageHandler(cmd_antiflood,   filters.command("antiflood")  & filters.group))
+    app.add_handler(MessageHandler(cmd_floodrate,   filters.command("floodrate")  & filters.group))
     app.add_handler(MessageHandler(cmd_floodwindow, filters.command("floodwindow") & filters.group))

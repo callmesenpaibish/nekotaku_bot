@@ -21,12 +21,16 @@ class GroupSettings(Base):
     # Welcome
     welcome_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     welcome_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # Welcome template message (set by replying to a message)
+    welcome_msg_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    welcome_msg_chat_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
 
     # Auto-delete timings (seconds; 0 = disabled)
     delete_cmd_delay: Mapped[int] = mapped_column(Integer, default=3)
-    delete_edited_delay: Mapped[int] = mapped_column(Integer, default=25)
+    delete_edited_delay: Mapped[int] = mapped_column(Integer, default=0)
     delete_join_msg: Mapped[bool] = mapped_column(Boolean, default=True)
     delete_left_msg: Mapped[bool] = mapped_column(Boolean, default=True)
+    delete_edited_msg: Mapped[bool] = mapped_column(Boolean, default=False)
 
     # Anti-spam
     antispam_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
@@ -85,7 +89,7 @@ class UserWarning(Base):
     )
     user_id: Mapped[int] = mapped_column(BigInteger)
     count: Mapped[int] = mapped_column(Integer, default=0)
-    reasons: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # JSON list
+    reasons: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     group: Mapped["GroupSettings"] = relationship(back_populates="warnings")
 
@@ -100,7 +104,7 @@ class UserInfraction(Base):
         BigInteger, ForeignKey("group_settings.chat_id", ondelete="CASCADE")
     )
     user_id: Mapped[int] = mapped_column(BigInteger)
-    action_type: Mapped[str] = mapped_column(String(20))  # mute | kick | ban | warn | spam
+    action_type: Mapped[str] = mapped_column(String(20))
     reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     performed_by: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
@@ -115,7 +119,6 @@ class AllowedAdmin(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(BigInteger, unique=True)
-    # Tier: "full" | "limited" | "group_only" | "readonly"
     tier: Mapped[str] = mapped_column(String(20), default="full")
     added_by: Mapped[int] = mapped_column(BigInteger)
     added_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
@@ -136,7 +139,7 @@ class ActionLog(Base):
     admin_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
     admin_username: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    duration: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # seconds
+    duration: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     extra: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
