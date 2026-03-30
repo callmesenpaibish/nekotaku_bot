@@ -85,7 +85,7 @@ async def _handle_incoming(
         return
 
     # ── Anti-forward check ───────────────────────────────────────────────────
-    if settings.antiforward_enabled and msg.forward_date:
+    if settings.antiforward_enabled and msg.forward_origin:
         await safe_delete(msg)
         notif = await context.bot.send_message(
             chat_id=chat.id,
@@ -105,7 +105,7 @@ async def _handle_incoming(
         "video":   bool(msg.video),
         "audio":   bool(msg.audio or msg.voice),
         "document": bool(msg.document),
-        "forward": bool(msg.forward_date),
+        "forward": bool(msg.forward_origin),
     }
 
     for content_type, detected in content_map.items():

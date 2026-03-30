@@ -5,6 +5,7 @@ import os
 
 from telegram.ext import Application, Defaults
 from telegram.constants import ParseMode
+from telegram.request import HTTPXRequest
 
 import config as cfg
 from database.engine import init_db
@@ -23,10 +24,18 @@ logger = logging.getLogger(__name__)
 
 
 def build_application() -> Application:
+    request = HTTPXRequest(
+        connection_pool_size=8,
+        connect_timeout=15.0,
+        read_timeout=30.0,
+        write_timeout=15.0,
+        pool_timeout=15.0,
+    )
     app = (
         Application.builder()
         .token(cfg.BOT_TOKEN)
         .defaults(Defaults(parse_mode=ParseMode.HTML))
+        .request(request)
         .build()
     )
     return app
