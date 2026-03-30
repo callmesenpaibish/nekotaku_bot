@@ -1,0 +1,12 @@
+version: "3.9"
+
+services:
+  tgbot:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./data:/app/data   # persist SQLite database
+    # For webhook mode, also expose port:
+    # ports:
+    #   - "8443:8443"
