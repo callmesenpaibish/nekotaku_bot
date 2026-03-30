@@ -57,7 +57,10 @@ HELP_SECTIONS = {
     "settings": (
         "⚙️ <b>Group Settings</b>\n\n"
         "<code>/settings</code> — Open interactive settings menu\n"
+        "<code>/rules</code> — Show group rules\n"
         "<code>/setrules &lt;text&gt;</code> — Set group rules\n"
+        "<code>/links</code> — Show the saved links message\n"
+        "<code>/setlinks &lt;text&gt;</code> — Set the links message (admin only)\n"
         "<code>/setwelcome &lt;text&gt;</code> — Set welcome message\n"
         "  Variables: <code>{mention}</code>, <code>{name}</code>, <code>{group}</code>\n"
         "<code>/setprefix .</code> — Change command prefix\n"

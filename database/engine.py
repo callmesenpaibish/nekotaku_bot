@@ -58,6 +58,7 @@ _SQLITE_MIGRATIONS = [
     "ALTER TABLE group_settings ADD COLUMN welcome_msg_id BIGINT",
     "ALTER TABLE group_settings ADD COLUMN welcome_msg_chat_id BIGINT",
     "ALTER TABLE group_settings ADD COLUMN delete_edited_msg BOOLEAN NOT NULL DEFAULT 0",
+    "ALTER TABLE group_settings ADD COLUMN links_text TEXT",
 ]
 
 

@@ -108,13 +108,6 @@ async def _auto_unmute_task(
             extra=f"Timed mute expired after {duration}s",
             auto=True,
         )
-        try:
-            await client.send_message(
-                chat_id=chat_id,
-                text=f"🔊 <a href='tg://user?id={user_id}'>{display_name}</a> has been automatically unmuted.",
-            )
-        except Exception:
-            pass
     except Exception as e:
         logger.warning("Auto-unmute failed for user %d in chat %d: %s", user_id, chat_id, e)
 
@@ -136,13 +129,6 @@ async def _auto_unban_task(
             extra=f"Timed ban expired after {duration}s",
             auto=True,
         )
-        try:
-            await client.send_message(
-                chat_id=chat_id,
-                text=f"🔓 <a href='tg://user?id={user_id}'>{display_name}</a> has been automatically unbanned.",
-            )
-        except Exception:
-            pass
     except Exception as e:
         logger.warning("Auto-unban failed for user %d in chat %d: %s", user_id, chat_id, e)
 

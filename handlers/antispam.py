@@ -214,7 +214,7 @@ def register(app: Client) -> None:
                 "purge","purgeme",
                 "lock","unlock","locks","restrict","unrestrict",
                 "antispam","antilink","antiflood","floodrate","floodwindow",
-                "settings","rules","setrules","setwelcome","setwarnlimit",
+                "settings","rules","setrules","links","setlinks","setwelcome","setwarnlimit",
                 "setwarnaction","setprefix","setlogchannel","setcmddelay",
                 "setediteddelay","promote","demote","editrights","settitle","pin","unpin","adminlist",
                 "adminpanel","addadmin","removeadmin","listadmins","start","help",

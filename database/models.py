@@ -58,6 +58,9 @@ class GroupSettings(Base):
     # Rules text
     rules: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
+    # Links message (shown on /links command)
+    links_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
     # Feature toggles
     antilink_allow_admins: Mapped[bool] = mapped_column(Boolean, default=True)
 

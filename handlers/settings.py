@@ -334,6 +334,36 @@ async def cmd_rules(client: Client, message: Message) -> None:
 @handle_errors
 @group_admin_only
 @group_only
+async def cmd_setlinks(client: Client, message: Message) -> None:
+    args = message.command[1:] if message.command else []
+    text = " ".join(args).strip() if args else None
+    if not text:
+        await _auto(
+            message,
+            "❌ Usage: /setlinks <message text>\n"
+            "Example: /setlinks 📌 Useful links:\n• Site: example.com\n• Chat: @chat",
+        )
+        return
+    async with AsyncSessionLocal() as session:
+        await update_group_settings(session, message.chat.id, links_text=text)
+    await _auto(message, "✅ Links message saved. Members can view it with /links.")
+
+
+@handle_errors
+@group_only
+async def cmd_links(client: Client, message: Message) -> None:
+    async with AsyncSessionLocal() as session:
+        s = await get_group_settings(session, message.chat.id)
+    if not s.links_text:
+        msg = await message.reply("❌ No links have been set. Admins can set them with /setlinks.")
+    else:
+        msg = await message.reply(s.links_text)
+    asyncio.create_task(auto_delete(message, 3))
+
+
+@handle_errors
+@group_admin_only
+@group_only
 async def cmd_setwelcome(client: Client, message: Message) -> None:
     """
     Usage:
@@ -501,6 +531,8 @@ def register(app: Client) -> None:
     app.add_handler(MessageHandler(cmd_settings,      filters.command("settings")       & filters.group))
     app.add_handler(MessageHandler(cmd_rules,          filters.command("rules")          & filters.group))
     app.add_handler(MessageHandler(cmd_setrules,       filters.command("setrules")       & filters.group))
+    app.add_handler(MessageHandler(cmd_links,          filters.command("links")          & filters.group))
+    app.add_handler(MessageHandler(cmd_setlinks,       filters.command("setlinks")       & filters.group))
     app.add_handler(MessageHandler(cmd_setwelcome,     filters.command("setwelcome")     & filters.group))
     app.add_handler(MessageHandler(cmd_setwarnlimit,   filters.command("setwarnlimit")   & filters.group))
     app.add_handler(MessageHandler(cmd_setwarnaction,  filters.command("setwarnaction")  & filters.group))
