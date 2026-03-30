@@ -1,13 +1,6 @@
-python-telegram-bot[webhooks]==21.3
+pyrogram==2.0.106
+tgcrypto
 SQLAlchemy==2.0.31
 aiosqlite==0.20.0
-asyncpg==0.31.0
 python-dotenv==1.0.1
 aiofiles==24.1.0
-aiofiles==24.1.0
-aiosqlite==0.20.0
-asyncpg==0.31.0
-python-dotenv==1.0.1
-python-telegram-bot[webhooks]==21.3
-SQLAlchemy==2.0.31
-telegram

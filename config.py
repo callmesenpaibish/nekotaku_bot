@@ -22,6 +22,10 @@ BOT_TOKEN: str = _require("BOT_TOKEN")
 BOT_USERNAME: str = os.getenv("BOT_USERNAME", "")
 OWNER_ID: int = int(_require("OWNER_ID"))
 
+# ── Pyrogram ──────────────────────────────────────────────────────────────────
+API_ID: int = int(_require("API_ID"))
+API_HASH: str = _require("API_HASH")
+
 # ── Database ──────────────────────────────────────────────────────────────────
 DATABASE_URL: str = os.getenv(
     "TGBOT_DATABASE_URL", "sqlite+aiosqlite:///data/tgbot.db"
@@ -36,10 +40,6 @@ FLOOD_RATE: int = _int("FLOOD_RATE", 5)
 FLOOD_WINDOW: int = _int("FLOOD_WINDOW", 5)
 SPAM_MUTE_DURATION: int = _int("SPAM_MUTE_DURATION", 600)
 
-# ── Webhook ───────────────────────────────────────────────────────────────────
-WEBHOOK_URL: str = os.getenv("WEBHOOK_URL", "")
-WEBHOOK_PORT: int = _int("WEBHOOK_PORT", 8443)
-
 # ── Logging channel ───────────────────────────────────────────────────────────
 LOG_CHANNEL_ID: int = int(os.getenv("LOG_CHANNEL_ID", 0)) or 0
 
@@ -47,8 +47,8 @@ LOG_CHANNEL_ID: int = int(os.getenv("LOG_CHANNEL_ID", 0)) or 0
 DEFAULT_PREFIX: str = "."
 
 # ── Warn system ───────────────────────────────────────────────────────────────
-DEFAULT_WARN_LIMIT: int = 3             # Warns before auto-action
-DEFAULT_WARN_ACTION: str = "mute"      # mute | kick | ban
+DEFAULT_WARN_LIMIT: int = 3
+DEFAULT_WARN_ACTION: str = "mute"
 
 # ── Welcome ───────────────────────────────────────────────────────────────────
 DEFAULT_WELCOME: str = (

@@ -1,67 +1,54 @@
-"""services/moderation_service.py — Core moderation actions."""
+"""services/moderation_service.py — Core moderation actions via Pyrogram."""
 
-import asyncio
 from datetime import datetime, timedelta, timezone
 from typing import Optional
-from telegram import Bot, Chat, ChatPermissions, User
-from telegram.error import TelegramError
+from pyrogram import Client
+from pyrogram.types import User, ChatPermissions, ChatPrivileges
+from pyrogram.errors import RPCError
 
 from database.engine import AsyncSessionLocal
-from database.repository import add_infraction, log_action
+from database.repository import add_infraction
 from services.log_service import send_log
-
 
 _MUTED_PERMS = ChatPermissions(
     can_send_messages=False,
-    can_send_audios=False,
-    can_send_documents=False,
-    can_send_photos=False,
-    can_send_videos=False,
-    can_send_video_notes=False,
-    can_send_voice_notes=False,
+    can_send_media_messages=False,
     can_send_polls=False,
     can_send_other_messages=False,
+    can_add_web_page_previews=False,
 )
 
 _FULL_PERMS = ChatPermissions(
     can_send_messages=True,
-    can_send_audios=True,
-    can_send_documents=True,
-    can_send_photos=True,
-    can_send_videos=True,
-    can_send_video_notes=True,
-    can_send_voice_notes=True,
+    can_send_media_messages=True,
     can_send_polls=True,
     can_send_other_messages=True,
     can_add_web_page_previews=True,
-    can_change_info=False,
     can_invite_users=True,
-    can_pin_messages=False,
 )
 
 
 async def mute_user(
-    bot: Bot,
+    client: Client,
     chat_id: int,
     user: User,
     admin: Optional[User] = None,
     reason: Optional[str] = None,
-    duration: Optional[int] = None,   # seconds; None = indefinite
+    duration: Optional[int] = None,
     auto: bool = False,
 ) -> bool:
     until = (
         datetime.now(timezone.utc) + timedelta(seconds=duration)
-        if duration
-        else None
+        if duration else None
     )
     try:
-        await bot.restrict_chat_member(
+        await client.restrict_chat_member(
             chat_id=chat_id,
             user_id=user.id,
             permissions=_MUTED_PERMS,
             until_date=until,
         )
-    except TelegramError:
+    except RPCError:
         return False
 
     async with AsyncSessionLocal() as session:
@@ -72,7 +59,7 @@ async def mute_user(
         )
 
     await send_log(
-        bot, chat_id, "mute",
+        client, chat_id, "mute",
         target_user_id=user.id,
         target_username=user.username,
         admin_id=admin.id if admin else None,
@@ -85,22 +72,22 @@ async def mute_user(
 
 
 async def unmute_user(
-    bot: Bot,
+    client: Client,
     chat_id: int,
     user: User,
     admin: Optional[User] = None,
 ) -> bool:
     try:
-        await bot.restrict_chat_member(
+        await client.restrict_chat_member(
             chat_id=chat_id,
             user_id=user.id,
             permissions=_FULL_PERMS,
         )
-    except TelegramError:
+    except RPCError:
         return False
 
     await send_log(
-        bot, chat_id, "unmute",
+        client, chat_id, "unmute",
         target_user_id=user.id,
         target_username=user.username,
         admin_id=admin.id if admin else None,
@@ -110,7 +97,7 @@ async def unmute_user(
 
 
 async def kick_user(
-    bot: Bot,
+    client: Client,
     chat_id: int,
     user: User,
     admin: Optional[User] = None,
@@ -118,10 +105,9 @@ async def kick_user(
     auto: bool = False,
 ) -> bool:
     try:
-        await bot.ban_chat_member(chat_id=chat_id, user_id=user.id)
-        # Kick = ban then immediately unban
-        await bot.unban_chat_member(chat_id=chat_id, user_id=user.id, only_if_banned=True)
-    except TelegramError:
+        await client.ban_chat_member(chat_id=chat_id, user_id=user.id)
+        await client.unban_chat_member(chat_id=chat_id, user_id=user.id)
+    except RPCError:
         return False
 
     async with AsyncSessionLocal() as session:
@@ -132,7 +118,7 @@ async def kick_user(
         )
 
     await send_log(
-        bot, chat_id, "kick",
+        client, chat_id, "kick",
         target_user_id=user.id,
         target_username=user.username,
         admin_id=admin.id if admin else None,
@@ -144,7 +130,7 @@ async def kick_user(
 
 
 async def ban_user(
-    bot: Bot,
+    client: Client,
     chat_id: int,
     user: User,
     admin: Optional[User] = None,
@@ -154,16 +140,15 @@ async def ban_user(
 ) -> bool:
     until = (
         datetime.now(timezone.utc) + timedelta(seconds=duration)
-        if duration
-        else None
+        if duration else None
     )
     try:
-        await bot.ban_chat_member(
+        await client.ban_chat_member(
             chat_id=chat_id,
             user_id=user.id,
             until_date=until,
         )
-    except TelegramError:
+    except RPCError:
         return False
 
     async with AsyncSessionLocal() as session:
@@ -174,7 +159,7 @@ async def ban_user(
         )
 
     await send_log(
-        bot, chat_id, "ban",
+        client, chat_id, "ban",
         target_user_id=user.id,
         target_username=user.username,
         admin_id=admin.id if admin else None,
@@ -187,22 +172,18 @@ async def ban_user(
 
 
 async def unban_user(
-    bot: Bot,
+    client: Client,
     chat_id: int,
     user: User,
     admin: Optional[User] = None,
 ) -> bool:
     try:
-        await bot.unban_chat_member(
-            chat_id=chat_id,
-            user_id=user.id,
-            only_if_banned=True,
-        )
-    except TelegramError:
+        await client.unban_chat_member(chat_id=chat_id, user_id=user.id)
+    except RPCError:
         return False
 
     await send_log(
-        bot, chat_id, "unban",
+        client, chat_id, "unban",
         target_user_id=user.id,
         target_username=user.username,
         admin_id=admin.id if admin else None,

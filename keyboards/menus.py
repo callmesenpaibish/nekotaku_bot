@@ -1,6 +1,6 @@
 """keyboards/menus.py — Inline keyboard builders for all menus."""
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 
 # ── Help main menu ────────────────────────────────────────────────────────────

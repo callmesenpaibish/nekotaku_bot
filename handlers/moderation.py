@@ -1,16 +1,18 @@
 """handlers/moderation.py — Mute, kick, ban, warn, del commands."""
 
 import asyncio
-import re
+import json
 from typing import Optional, Tuple
-from telegram import Update, User
-from telegram.ext import ContextTypes, MessageHandler, CommandHandler, filters
+from pyrogram import Client, filters
+from pyrogram.types import Message, User
+from pyrogram.handlers import MessageHandler
+from pyrogram.errors import RPCError
 
 import config as cfg
 from database.engine import AsyncSessionLocal
 from database.repository import (
     get_group_settings, add_warn, reset_warns, get_warn_count,
-    get_infractions,
+    get_infractions, get_warn,
 )
 from services.moderation_service import (
     mute_user, unmute_user, kick_user, ban_user, unban_user
@@ -18,55 +20,32 @@ from services.moderation_service import (
 from utils.decorators import group_admin_only, group_only
 from utils.helpers import safe_delete, auto_delete, mention_html, is_admin
 from utils.time_parser import parse_duration, seconds_to_human
+from handlers.errors import handle_errors
 
-
-# ── Shared helper: extract target + optional duration + reason ────────────────
 
 async def _resolve_target(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
+    client: Client, message: Message, args: list[str]
 ) -> Tuple[Optional[User], list[str]]:
-    """
-    Returns (target_user, remaining_args).
-    Target is resolved from:
-      1. Reply-to message
-      2. @username or user_id in args
-    """
-    msg = update.effective_message
-    args = context.args or []
+    if message.reply_to_message and message.reply_to_message.from_user:
+        return message.reply_to_message.from_user, args
 
-    # From reply
-    if msg.reply_to_message and msg.reply_to_message.from_user:
-        return msg.reply_to_message.from_user, args
-
-    # From first arg (@username or numeric ID)
     if args:
         identifier = args[0]
         rest = args[1:]
-        if identifier.startswith("@"):
-            try:
-                member = await context.bot.get_chat_member(
-                    update.effective_chat.id, identifier
-                )
+        try:
+            if identifier.startswith("@") or identifier.lstrip("-").isdigit():
+                uid = int(identifier) if identifier.lstrip("-").isdigit() else identifier
+                member = await client.get_chat_member(message.chat.id, uid)
                 return member.user, list(rest)
-            except Exception:
-                await msg.reply_text("❌ User not found.")
-                return None, []
-        elif identifier.lstrip("-").isdigit():
-            try:
-                member = await context.bot.get_chat_member(
-                    update.effective_chat.id, int(identifier)
-                )
-                return member.user, list(rest)
-            except Exception:
-                await msg.reply_text("❌ User not found.")
-                return None, []
+        except RPCError:
+            await message.reply("❌ User not found.")
+            return None, []
 
-    await msg.reply_text("❌ Reply to a user or specify @username / user ID.")
+    await message.reply("❌ Reply to a user or specify @username / user ID.")
     return None, []
 
 
 def _guard_target(target: User, admin: User) -> Optional[str]:
-    """Return error string if targeting the bot owner or same admin."""
     if target.id == cfg.OWNER_ID:
         return "⛔ You cannot moderate the bot owner."
     if target.id == admin.id:
@@ -76,194 +55,177 @@ def _guard_target(target: User, admin: User) -> Optional[str]:
     return None
 
 
-async def _reply_and_autodelete(
-    update: Update, text: str, delay: int = 5
-) -> None:
-    msg = await update.effective_message.reply_text(text, parse_mode="HTML")
+async def _reply_and_autodelete(message: Message, text: str, delay: int = 5) -> None:
+    msg = await message.reply(text)
     asyncio.create_task(auto_delete(msg, delay))
-    asyncio.create_task(auto_delete(update.effective_message, 3))
+    asyncio.create_task(auto_delete(message, 3))
 
 
-# ── .mute / .tmute ────────────────────────────────────────────────────────────
-
+@handle_errors
 @group_admin_only
 @group_only
-async def cmd_mute(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    target, args = await _resolve_target(update, context)
+async def cmd_mute(client: Client, message: Message) -> None:
+    args = message.command[1:] if message.command else []
+    target, args = await _resolve_target(client, message, args)
     if not target:
         return
-
-    err = _guard_target(target, update.effective_user)
+    err = _guard_target(target, message.from_user)
     if err:
-        await _reply_and_autodelete(update, err)
+        await _reply_and_autodelete(message, err)
         return
-
     reason = " ".join(args) if args else None
-    ok = await mute_user(
-        context.bot, update.effective_chat.id, target,
-        admin=update.effective_user, reason=reason,
-    )
+    ok = await mute_user(client, message.chat.id, target, admin=message.from_user, reason=reason)
     if ok:
         await _reply_and_autodelete(
-            update,
+            message,
             f"🔇 {mention_html(target)} has been muted."
             + (f"\n📝 Reason: {reason}" if reason else ""),
         )
 
 
+@handle_errors
 @group_admin_only
 @group_only
-async def cmd_tmute(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    target, args = await _resolve_target(update, context)
+async def cmd_tmute(client: Client, message: Message) -> None:
+    args = message.command[1:] if message.command else []
+    target, args = await _resolve_target(client, message, args)
     if not target:
         return
-
-    err = _guard_target(target, update.effective_user)
+    err = _guard_target(target, message.from_user)
     if err:
-        await _reply_and_autodelete(update, err)
+        await _reply_and_autodelete(message, err)
         return
-
     if not args:
-        await _reply_and_autodelete(update, "❌ Usage: .tmute @user &lt;duration&gt; [reason]\nExample: .tmute @user 10m")
+        await _reply_and_autodelete(message, "❌ Usage: /tmute @user &lt;duration&gt; [reason]\nExample: /tmute @user 10m")
         return
-
     duration = parse_duration(args[0])
     if not duration:
-        await _reply_and_autodelete(update, "❌ Invalid duration. Examples: 10m, 2h, 1d, 45s")
+        await _reply_and_autodelete(message, "❌ Invalid duration. Examples: 10m, 2h, 1d, 45s")
         return
-
     reason = " ".join(args[1:]) if args[1:] else None
-    ok = await mute_user(
-        context.bot, update.effective_chat.id, target,
-        admin=update.effective_user,
-        reason=reason,
-        duration=duration,
-    )
+    ok = await mute_user(client, message.chat.id, target, admin=message.from_user, reason=reason, duration=duration)
     if ok:
         await _reply_and_autodelete(
-            update,
+            message,
             f"🔇 {mention_html(target)} muted for <b>{seconds_to_human(duration)}</b>."
             + (f"\n📝 Reason: {reason}" if reason else ""),
         )
 
 
+@handle_errors
 @group_admin_only
 @group_only
-async def cmd_unmute(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    target, _ = await _resolve_target(update, context)
+async def cmd_unmute(client: Client, message: Message) -> None:
+    args = message.command[1:] if message.command else []
+    target, _ = await _resolve_target(client, message, args)
     if not target:
         return
-    ok = await unmute_user(context.bot, update.effective_chat.id, target, admin=update.effective_user)
+    ok = await unmute_user(client, message.chat.id, target, admin=message.from_user)
     if ok:
-        await _reply_and_autodelete(update, f"🔊 {mention_html(target)} has been unmuted.")
+        await _reply_and_autodelete(message, f"🔊 {mention_html(target)} has been unmuted.")
 
 
-# ── .kick / .tkick ────────────────────────────────────────────────────────────
-
+@handle_errors
 @group_admin_only
 @group_only
-async def cmd_kick(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    target, args = await _resolve_target(update, context)
+async def cmd_kick(client: Client, message: Message) -> None:
+    args = message.command[1:] if message.command else []
+    target, args = await _resolve_target(client, message, args)
     if not target:
         return
-    err = _guard_target(target, update.effective_user)
+    err = _guard_target(target, message.from_user)
     if err:
-        await _reply_and_autodelete(update, err)
+        await _reply_and_autodelete(message, err)
         return
     reason = " ".join(args) if args else None
-    ok = await kick_user(
-        context.bot, update.effective_chat.id, target,
-        admin=update.effective_user, reason=reason,
-    )
+    ok = await kick_user(client, message.chat.id, target, admin=message.from_user, reason=reason)
     if ok:
         await _reply_and_autodelete(
-            update,
+            message,
             f"👢 {mention_html(target)} has been kicked."
             + (f"\n📝 Reason: {reason}" if reason else ""),
         )
 
 
-# ── .ban / .tban ──────────────────────────────────────────────────────────────
-
+@handle_errors
 @group_admin_only
 @group_only
-async def cmd_ban(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    target, args = await _resolve_target(update, context)
+async def cmd_ban(client: Client, message: Message) -> None:
+    args = message.command[1:] if message.command else []
+    target, args = await _resolve_target(client, message, args)
     if not target:
         return
-    err = _guard_target(target, update.effective_user)
+    err = _guard_target(target, message.from_user)
     if err:
-        await _reply_and_autodelete(update, err)
+        await _reply_and_autodelete(message, err)
         return
     reason = " ".join(args) if args else None
-    ok = await ban_user(
-        context.bot, update.effective_chat.id, target,
-        admin=update.effective_user, reason=reason,
-    )
+    ok = await ban_user(client, message.chat.id, target, admin=message.from_user, reason=reason)
     if ok:
         await _reply_and_autodelete(
-            update,
+            message,
             f"🔨 {mention_html(target)} has been banned."
             + (f"\n📝 Reason: {reason}" if reason else ""),
         )
 
 
+@handle_errors
 @group_admin_only
 @group_only
-async def cmd_tban(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    target, args = await _resolve_target(update, context)
+async def cmd_tban(client: Client, message: Message) -> None:
+    args = message.command[1:] if message.command else []
+    target, args = await _resolve_target(client, message, args)
     if not target:
         return
-    err = _guard_target(target, update.effective_user)
+    err = _guard_target(target, message.from_user)
     if err:
-        await _reply_and_autodelete(update, err)
+        await _reply_and_autodelete(message, err)
         return
     if not args:
-        await _reply_and_autodelete(update, "❌ Usage: .tban @user &lt;duration&gt; [reason]")
+        await _reply_and_autodelete(message, "❌ Usage: /tban @user &lt;duration&gt; [reason]")
         return
     duration = parse_duration(args[0])
     if not duration:
-        await _reply_and_autodelete(update, "❌ Invalid duration.")
+        await _reply_and_autodelete(message, "❌ Invalid duration.")
         return
     reason = " ".join(args[1:]) if args[1:] else None
-    ok = await ban_user(
-        context.bot, update.effective_chat.id, target,
-        admin=update.effective_user, reason=reason, duration=duration,
-    )
+    ok = await ban_user(client, message.chat.id, target, admin=message.from_user, reason=reason, duration=duration)
     if ok:
         await _reply_and_autodelete(
-            update,
+            message,
             f"🔨 {mention_html(target)} banned for <b>{seconds_to_human(duration)}</b>."
             + (f"\n📝 Reason: {reason}" if reason else ""),
         )
 
 
+@handle_errors
 @group_admin_only
 @group_only
-async def cmd_unban(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    target, _ = await _resolve_target(update, context)
+async def cmd_unban(client: Client, message: Message) -> None:
+    args = message.command[1:] if message.command else []
+    target, _ = await _resolve_target(client, message, args)
     if not target:
         return
-    ok = await unban_user(context.bot, update.effective_chat.id, target, admin=update.effective_user)
+    ok = await unban_user(client, message.chat.id, target, admin=message.from_user)
     if ok:
-        await _reply_and_autodelete(update, f"✅ {mention_html(target)} has been unbanned.")
+        await _reply_and_autodelete(message, f"✅ {mention_html(target)} has been unbanned.")
 
 
-# ── .warn / .dwarn / .unwarn / .resetwarn / .warns ───────────────────────────
-
+@handle_errors
 @group_admin_only
 @group_only
-async def cmd_warn(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    target, args = await _resolve_target(update, context)
+async def cmd_warn(client: Client, message: Message) -> None:
+    args = message.command[1:] if message.command else []
+    target, args = await _resolve_target(client, message, args)
     if not target:
         return
-    err = _guard_target(target, update.effective_user)
+    err = _guard_target(target, message.from_user)
     if err:
-        await _reply_and_autodelete(update, err)
+        await _reply_and_autodelete(message, err)
         return
 
     reason = " ".join(args) if args else None
-    chat_id = update.effective_chat.id
+    chat_id = message.chat.id
 
     async with AsyncSessionLocal() as session:
         settings = await get_group_settings(session, chat_id)
@@ -280,130 +242,121 @@ async def cmd_warn(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if count >= warn_limit:
         reply += f"\n\n🚨 Warn limit reached — applying <b>{warn_action}</b>!"
         if warn_action == "mute":
-            await mute_user(context.bot, chat_id, target, admin=update.effective_user, reason="Warn limit reached")
+            await mute_user(client, chat_id, target, admin=message.from_user, reason="Warn limit reached")
         elif warn_action == "kick":
-            await kick_user(context.bot, chat_id, target, admin=update.effective_user, reason="Warn limit reached")
+            await kick_user(client, chat_id, target, admin=message.from_user, reason="Warn limit reached")
         elif warn_action == "ban":
-            await ban_user(context.bot, chat_id, target, admin=update.effective_user, reason="Warn limit reached")
-
+            await ban_user(client, chat_id, target, admin=message.from_user, reason="Warn limit reached")
         async with AsyncSessionLocal() as session:
             await reset_warns(session, chat_id, target.id)
 
-    await _reply_and_autodelete(update, reply)
+    await _reply_and_autodelete(message, reply)
 
 
+@handle_errors
 @group_admin_only
 @group_only
-async def cmd_dwarn(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Warn + delete the replied-to message."""
-    if update.effective_message.reply_to_message:
-        await safe_delete(update.effective_message.reply_to_message)
-    await cmd_warn(update, context)
+async def cmd_dwarn(client: Client, message: Message) -> None:
+    if message.reply_to_message:
+        await safe_delete(message.reply_to_message)
+    await cmd_warn(client, message)
 
 
+@handle_errors
 @group_admin_only
 @group_only
-async def cmd_unwarn(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    target, _ = await _resolve_target(update, context)
+async def cmd_unwarn(client: Client, message: Message) -> None:
+    args = message.command[1:] if message.command else []
+    target, _ = await _resolve_target(client, message, args)
     if not target:
         return
-    chat_id = update.effective_chat.id
+    chat_id = message.chat.id
     async with AsyncSessionLocal() as session:
-        warn = await get_warn_count(session, chat_id, target.id)
-        if warn > 0:
-            from database.repository import get_warn
-            w = await get_warn(session, chat_id, target.id)
-            w.count = max(0, w.count - 1)
-            await session.commit()
-    await _reply_and_autodelete(update, f"✅ One warning removed from {mention_html(target)}.")
+        w = await get_warn(session, chat_id, target.id)
+        w.count = max(0, w.count - 1)
+        await session.commit()
+    await _reply_and_autodelete(message, f"✅ One warning removed from {mention_html(target)}.")
 
 
+@handle_errors
 @group_admin_only
 @group_only
-async def cmd_resetwarn(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    target, _ = await _resolve_target(update, context)
+async def cmd_resetwarn(client: Client, message: Message) -> None:
+    args = message.command[1:] if message.command else []
+    target, _ = await _resolve_target(client, message, args)
     if not target:
         return
     async with AsyncSessionLocal() as session:
-        await reset_warns(session, update.effective_chat.id, target.id)
-    await _reply_and_autodelete(update, f"✅ All warnings for {mention_html(target)} have been reset.")
+        await reset_warns(session, message.chat.id, target.id)
+    await _reply_and_autodelete(message, f"✅ All warnings for {mention_html(target)} have been reset.")
 
 
+@handle_errors
 @group_admin_only
 @group_only
-async def cmd_warns(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    target, _ = await _resolve_target(update, context)
+async def cmd_warns(client: Client, message: Message) -> None:
+    args = message.command[1:] if message.command else []
+    target, _ = await _resolve_target(client, message, args)
     if not target:
         return
-    chat_id = update.effective_chat.id
+    chat_id = message.chat.id
     async with AsyncSessionLocal() as session:
         settings = await get_group_settings(session, chat_id)
         count = await get_warn_count(session, chat_id, target.id)
     await _reply_and_autodelete(
-        update,
+        message,
         f"⚠️ {mention_html(target)}: <b>{count}/{settings.warn_limit}</b> warnings.",
     )
 
 
-# ── .del — delete replied message ─────────────────────────────────────────────
-
+@handle_errors
 @group_admin_only
 @group_only
-async def cmd_del(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    msg = update.effective_message
-    if msg.reply_to_message:
-        await safe_delete(msg.reply_to_message)
-    await safe_delete(msg)
+async def cmd_del(client: Client, message: Message) -> None:
+    if message.reply_to_message:
+        await safe_delete(message.reply_to_message)
+    await safe_delete(message)
 
 
-# ── User stats ────────────────────────────────────────────────────────────────
-
+@handle_errors
 @group_admin_only
 @group_only
-async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    target, _ = await _resolve_target(update, context)
+async def cmd_stats(client: Client, message: Message) -> None:
+    args = message.command[1:] if message.command else []
+    target, _ = await _resolve_target(client, message, args)
     if not target:
         return
-    chat_id = update.effective_chat.id
+    chat_id = message.chat.id
     async with AsyncSessionLocal() as session:
         infractions = await get_infractions(session, chat_id, target.id)
         warns = await get_warn_count(session, chat_id, target.id)
 
     if not infractions:
         await _reply_and_autodelete(
-            update,
+            message,
             f"📊 {mention_html(target)} has a clean record. No infractions recorded.",
         )
         return
 
     lines = [f"📊 <b>Stats for {mention_html(target)}</b>", f"⚠️ Active warnings: {warns}\n"]
-    for inf in infractions[-10:]:  # last 10
+    for inf in infractions[-10:]:
         lines.append(f"• <code>{inf.action_type.upper()}</code> — {inf.reason or 'No reason'} ({inf.created_at.strftime('%Y-%m-%d')})")
 
-    await _reply_and_autodelete(update, "\n".join(lines), delay=10)
+    await _reply_and_autodelete(message, "\n".join(lines), delay=10)
 
 
 # ── Custom prefix handler (e.g. .mute, .ban) ─────────────────────────────────
 
-async def _prefix_handler(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> None:
-    """
-    Route messages starting with the group's custom prefix to the right command.
-    Allows commands like `.tmute @user 10m`.
-    """
-    msg = update.effective_message
-    if not msg or not msg.text:
-        return
-    chat = update.effective_chat
-    if not chat or chat.type == "private":
+@handle_errors
+async def _prefix_handler(client: Client, message: Message) -> None:
+    if not message.text or not message.from_user:
         return
 
     async with AsyncSessionLocal() as session:
-        settings = await get_group_settings(session, chat.id)
+        settings = await get_group_settings(session, message.chat.id)
     prefix = settings.prefix or cfg.DEFAULT_PREFIX
 
-    text = msg.text.strip()
+    text = message.text.strip()
     if not text.startswith(prefix):
         return
 
@@ -412,15 +365,17 @@ async def _prefix_handler(
         return
 
     cmd = parts[0].lower()
-    # Inject args so decorators' context.args works
-    context.args = parts[1:]
+    args = parts[1:]
+
+    # Temporarily inject command into message for consistent handling
+    message.command = [cmd] + args
 
     routing = {
         "mute": cmd_mute,
         "tmute": cmd_tmute,
         "unmute": cmd_unmute,
         "kick": cmd_kick,
-        "tkick": cmd_kick,  # tkick same as kick (Telegram handles duration via tban)
+        "tkick": cmd_kick,
         "ban": cmd_ban,
         "tban": cmd_tban,
         "unban": cmd_unban,
@@ -434,27 +389,22 @@ async def _prefix_handler(
 
     handler_fn = routing.get(cmd)
     if handler_fn:
-        await handler_fn(update, context)
+        await handler_fn(client, message)
 
 
-def register(application) -> None:
-    application.add_handler(CommandHandler("mute",      cmd_mute))
-    application.add_handler(CommandHandler("tmute",     cmd_tmute))
-    application.add_handler(CommandHandler("unmute",    cmd_unmute))
-    application.add_handler(CommandHandler("kick",      cmd_kick))
-    application.add_handler(CommandHandler("ban",       cmd_ban))
-    application.add_handler(CommandHandler("tban",      cmd_tban))
-    application.add_handler(CommandHandler("unban",     cmd_unban))
-    application.add_handler(CommandHandler("warn",      cmd_warn))
-    application.add_handler(CommandHandler("dwarn",     cmd_dwarn))
-    application.add_handler(CommandHandler("unwarn",    cmd_unwarn))
-    application.add_handler(CommandHandler("resetwarn", cmd_resetwarn))
-    application.add_handler(CommandHandler("warns",     cmd_warns))
-    application.add_handler(CommandHandler("del",       cmd_del))
-    application.add_handler(CommandHandler("stats",     cmd_stats))
-
-    # Prefix-based handler (lower priority than commands)
-    application.add_handler(
-        MessageHandler(filters.ChatType.GROUPS & filters.TEXT, _prefix_handler),
-        group=10,
-    )
+def register(app: Client) -> None:
+    app.add_handler(MessageHandler(cmd_mute,      filters.command("mute")      & filters.group))
+    app.add_handler(MessageHandler(cmd_tmute,     filters.command("tmute")     & filters.group))
+    app.add_handler(MessageHandler(cmd_unmute,    filters.command("unmute")    & filters.group))
+    app.add_handler(MessageHandler(cmd_kick,      filters.command("kick")      & filters.group))
+    app.add_handler(MessageHandler(cmd_ban,       filters.command("ban")       & filters.group))
+    app.add_handler(MessageHandler(cmd_tban,      filters.command("tban")      & filters.group))
+    app.add_handler(MessageHandler(cmd_unban,     filters.command("unban")     & filters.group))
+    app.add_handler(MessageHandler(cmd_warn,      filters.command("warn")      & filters.group))
+    app.add_handler(MessageHandler(cmd_dwarn,     filters.command("dwarn")     & filters.group))
+    app.add_handler(MessageHandler(cmd_unwarn,    filters.command("unwarn")    & filters.group))
+    app.add_handler(MessageHandler(cmd_resetwarn, filters.command("resetwarn") & filters.group))
+    app.add_handler(MessageHandler(cmd_warns,     filters.command("warns")     & filters.group))
+    app.add_handler(MessageHandler(cmd_del,       filters.command("del")       & filters.group))
+    app.add_handler(MessageHandler(cmd_stats,     filters.command("stats")     & filters.group))
+    app.add_handler(MessageHandler(_prefix_handler, filters.group & filters.text), group=10)

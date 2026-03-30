@@ -1,14 +1,13 @@
 """handlers/help.py — Private chat help panel with role-based content."""
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler
+from pyrogram import Client, filters
+from pyrogram.types import Message, CallbackQuery
+from pyrogram.handlers import MessageHandler, CallbackQueryHandler
 
 import config as cfg
 from keyboards.menus import help_main_menu, help_back_button
 from middleware.permissions import resolve_role, Role, can_use_private_panel
-
-
-# ── Help text sections ────────────────────────────────────────────────────────
+from handlers.errors import handle_errors
 
 HELP_SECTIONS = {
     "mod": (
@@ -62,8 +61,7 @@ HELP_SECTIONS = {
         "<code>/setwelcome &lt;text&gt;</code> — Set welcome message\n"
         "  Variables: <code>{mention}</code>, <code>{name}</code>, <code>{group}</code>\n"
         "<code>/setprefix .</code> — Change command prefix\n"
-        "<code>/setlogchannel @channel</code> — Set log destination\n"
-        "<code>/setmutedefault 10m</code> — Default mute duration\n\n"
+        "<code>/setlogchannel @channel</code> — Set log destination\n\n"
         "All settings are per-group and persist across restarts."
     ),
     "admin": (
@@ -92,14 +90,13 @@ HELP_SECTIONS = {
 }
 
 
-async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /start in private chat."""
-    chat = update.effective_chat
-    user = update.effective_user
-    if chat.type != "private":
+@handle_errors
+async def start_handler(client: Client, message: Message) -> None:
+    user = message.from_user
+    if not user:
         return
 
-    role = await resolve_role(update, context)
+    role = await resolve_role(client, user.id)
 
     if can_use_private_panel(role):
         is_owner = (user.id == cfg.OWNER_ID)
@@ -108,73 +105,48 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             "I'm a full-featured Telegram group moderation bot.\n"
             "Choose a category below to view available commands."
         )
-        await update.message.reply_text(
-            text,
-            parse_mode="HTML",
-            reply_markup=help_main_menu(is_owner=is_owner),
-        )
+        await message.reply(text, reply_markup=help_main_menu(is_owner=is_owner))
     elif role >= Role.LIMITED_ADMIN:
-        await update.message.reply_text(
+        await message.reply(
             f"👋 Hi {user.first_name}!\n"
-            "You have limited access. Use /help to see your available commands.",
-            parse_mode="HTML",
+            "You have limited access. Use /help to see your available commands."
         )
     else:
-        await update.message.reply_text(
+        await message.reply(
             "🤖 I am a moderation bot for a specific group.\n"
             "Add me to your group and make me an admin to get started."
         )
 
 
-async def help_command_handler(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> None:
-    """Handle /help in private chat."""
-    await start_handler(update, context)
-
-
-async def help_callback_handler(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> None:
-    """Handle all help:* callback queries."""
-    query = update.callback_query
-    await query.answer()
-
-    data = query.data  # e.g. "help:mod"
-    role = await resolve_role(update, context)
-    user = update.effective_user
+@handle_errors
+async def help_callback_handler(client: Client, callback_query: CallbackQuery) -> None:
+    await callback_query.answer()
+    data = callback_query.data
+    user = callback_query.from_user
 
     if data == "help:main":
         is_owner = (user.id == cfg.OWNER_ID)
-        await query.edit_message_text(
+        await callback_query.edit_message_text(
             "📖 <b>Help Menu</b>\n\nChoose a category:",
-            parse_mode="HTML",
             reply_markup=help_main_menu(is_owner=is_owner),
         )
         return
 
     section = data.split(":")[-1]
 
-    # Guard owner section
     if section == "owner" and user.id != cfg.OWNER_ID:
-        await query.answer("⛔ Owner only.", show_alert=True)
+        await callback_query.answer("⛔ Owner only.", show_alert=True)
         return
 
     text = HELP_SECTIONS.get(section)
     if not text:
-        await query.answer("Unknown section.", show_alert=True)
+        await callback_query.answer("Unknown section.", show_alert=True)
         return
 
-    await query.edit_message_text(
-        text,
-        parse_mode="HTML",
-        reply_markup=help_back_button(),
-    )
+    await callback_query.edit_message_text(text, reply_markup=help_back_button())
 
 
-def register(application) -> None:
-    application.add_handler(CommandHandler("start", start_handler))
-    application.add_handler(CommandHandler("help",  help_command_handler))
-    application.add_handler(
-        CallbackQueryHandler(help_callback_handler, pattern=r"^help:")
-    )
+def register(app: Client) -> None:
+    app.add_handler(MessageHandler(start_handler, filters.command("start") & filters.private))
+    app.add_handler(MessageHandler(start_handler, filters.command("help") & filters.private))
+    app.add_handler(CallbackQueryHandler(help_callback_handler, filters.regex(r"^help:")))

@@ -30,26 +30,18 @@ _PATTERN = re.compile(
 
 
 def parse_duration(text: str) -> Optional[int]:
-    """
-    Parse a duration string and return total seconds, or None if invalid.
-    Examples: "10m" -> 600, "2h" -> 7200, "1d" -> 86400, "45s" -> 45
-    """
     text = text.strip().lower()
     match = _PATTERN.fullmatch(text.replace(" ", ""))
     if match:
         amount = int(match.group(1))
         unit = match.group(2)
         return amount * _UNITS[unit]
-
-    # Try plain integer (treated as seconds)
     if text.isdigit():
         return int(text)
-
     return None
 
 
 def seconds_to_human(seconds: int) -> str:
-    """Convert seconds to a readable string like '2h 30m'."""
     if seconds <= 0:
         return "0s"
     parts = []

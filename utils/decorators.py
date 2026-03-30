@@ -1,52 +1,43 @@
-"""utils/decorators.py — Permission-checking decorators for handlers."""
+"""utils/decorators.py — Permission-checking decorators for Pyrogram handlers."""
 
 import functools
-from typing import Callable
-from telegram import Update
-from telegram.ext import ContextTypes
+from pyrogram import Client
+from pyrogram.types import Message
+from pyrogram.enums import ChatType
 
 import config as cfg
 from utils.helpers import is_admin
 
 
-def owner_only(func: Callable) -> Callable:
-    """Restrict handler to bot owner only."""
+def owner_only(func):
     @functools.wraps(func)
-    async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        user = update.effective_user
-        if not user or user.id != cfg.OWNER_ID:
-            await update.effective_message.reply_text("⛔ Owner-only command.")
+    async def wrapper(client: Client, message: Message):
+        if not message.from_user or message.from_user.id != cfg.OWNER_ID:
+            await message.reply("⛔ Owner-only command.")
             return
-        return await func(update, context)
+        return await func(client, message)
     return wrapper
 
 
-def group_admin_only(func: Callable) -> Callable:
-    """Restrict handler to group admins (and owner)."""
+def group_admin_only(func):
     @functools.wraps(func)
-    async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        user = update.effective_user
-        chat = update.effective_chat
-        if not user or not chat:
+    async def wrapper(client: Client, message: Message):
+        if not message.from_user:
             return
-        if user.id == cfg.OWNER_ID:
-            return await func(update, context)
-        if not await is_admin(chat, user.id, context):
-            await update.effective_message.reply_text("⛔ Admin-only command.")
+        if message.from_user.id == cfg.OWNER_ID:
+            return await func(client, message)
+        if not await is_admin(client, message.chat.id, message.from_user.id):
+            await message.reply("⛔ Admin-only command.")
             return
-        return await func(update, context)
+        return await func(client, message)
     return wrapper
 
 
-def group_only(func: Callable) -> Callable:
-    """Restrict handler to group/supergroup chats only."""
+def group_only(func):
     @functools.wraps(func)
-    async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        chat = update.effective_chat
-        if chat and chat.type == "private":
-            await update.effective_message.reply_text(
-                "❌ This command only works in group chats."
-            )
+    async def wrapper(client: Client, message: Message):
+        if message.chat.type == ChatType.PRIVATE:
+            await message.reply("❌ This command only works in group chats.")
             return
-        return await func(update, context)
+        return await func(client, message)
     return wrapper

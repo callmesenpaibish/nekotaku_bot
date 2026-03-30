@@ -1,8 +1,9 @@
 """handlers/settings.py — Per-group settings commands and inline menu."""
 
 import asyncio
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler
+from pyrogram import Client, filters
+from pyrogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from pyrogram.handlers import MessageHandler, CallbackQueryHandler
 
 from database.engine import AsyncSessionLocal
 from database.repository import get_group_settings, update_group_settings
@@ -10,38 +11,35 @@ from keyboards.menus import settings_menu, setting_back, toggle_button
 from utils.decorators import group_admin_only, group_only
 from utils.helpers import auto_delete
 from utils.time_parser import parse_duration, seconds_to_human
+from handlers.errors import handle_errors
 import config as cfg
 
 
-async def _auto(update: Update, text: str, delay: int = 5) -> None:
-    msg = await update.effective_message.reply_text(text, parse_mode="HTML")
+async def _auto(message: Message, text: str, delay: int = 5) -> None:
+    msg = await message.reply(text)
     asyncio.create_task(auto_delete(msg, delay))
-    asyncio.create_task(auto_delete(update.effective_message, 3))
+    asyncio.create_task(auto_delete(message, 3))
 
 
-# ── /settings — main menu ────────────────────────────────────────────────────
-
+@handle_errors
 @group_admin_only
 @group_only
-async def cmd_settings(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    chat = update.effective_chat
-    await update.effective_message.reply_text(
+async def cmd_settings(client: Client, message: Message) -> None:
+    chat = message.chat
+    await message.reply(
         f"⚙️ <b>Settings for {chat.title}</b>\n\nSelect a category:",
-        parse_mode="HTML",
         reply_markup=settings_menu(chat.id),
     )
-    asyncio.create_task(auto_delete(update.effective_message, 3))
+    asyncio.create_task(auto_delete(message, 3))
 
 
-# ── Callback router ───────────────────────────────────────────────────────────
-
-async def settings_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    query = update.callback_query
-    await query.answer()
-    data = query.data  # cfg:<chat_id>:<section> or cfg:close
+@handle_errors
+async def settings_callback(client: Client, callback_query: CallbackQuery) -> None:
+    await callback_query.answer()
+    data = callback_query.data
 
     if data == "cfg:close":
-        await query.delete_message()
+        await callback_query.message.delete()
         return
 
     parts = data.split(":")
@@ -55,9 +53,8 @@ async def settings_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         s = await get_group_settings(session, chat_id)
 
     if section == "main":
-        await query.edit_message_text(
+        await callback_query.edit_message_text(
             "⚙️ <b>Settings</b>\n\nSelect a category:",
-            parse_mode="HTML",
             reply_markup=settings_menu(chat_id),
         )
 
@@ -73,7 +70,7 @@ async def settings_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             f"<b>Current text:</b>\n<code>{s.welcome_text or cfg.DEFAULT_WELCOME}</code>\n\n"
             "Variables: <code>{mention}</code>, <code>{name}</code>, <code>{group}</code>"
         )
-        await query.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
+        await callback_query.edit_message_text(text, reply_markup=kb)
 
     elif section == "antispam":
         kb = InlineKeyboardMarkup([
@@ -82,10 +79,14 @@ async def settings_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             [toggle_button("Anti-Forward", s.antiforward_enabled, f"cfg:{chat_id}:toggle:antiforward")],
             [InlineKeyboardButton("« Back", callback_data=f"cfg:{chat_id}:main")],
         ])
-        await query.edit_message_text(
-            "🛡 <b>Anti-Spam Settings</b>",
-            parse_mode="HTML", reply_markup=kb,
-        )
+        await callback_query.edit_message_text("🛡 <b>Anti-Spam Settings</b>", reply_markup=kb)
+
+    elif section == "antilink":
+        kb = InlineKeyboardMarkup([
+            [toggle_button("Anti-Link", s.antilink_enabled, f"cfg:{chat_id}:toggle:antilink")],
+            [InlineKeyboardButton("« Back", callback_data=f"cfg:{chat_id}:main")],
+        ])
+        await callback_query.edit_message_text("🔗 <b>Anti-Link Settings</b>", reply_markup=kb)
 
     elif section == "flood":
         kb = InlineKeyboardMarkup([
@@ -98,7 +99,7 @@ async def settings_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             f"Mute duration: <code>{seconds_to_human(s.spam_mute_duration)}</code>\n\n"
             "Change with: /floodrate, /floodwindow"
         )
-        await query.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
+        await callback_query.edit_message_text(text, reply_markup=kb)
 
     elif section == "warnlimit":
         kb = InlineKeyboardMarkup([
@@ -112,7 +113,7 @@ async def settings_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             "<code>/setwarnlimit 3</code>\n"
             "<code>/setwarnaction mute|kick|ban</code>"
         )
-        await query.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
+        await callback_query.edit_message_text(text, reply_markup=kb)
 
     elif section == "locks":
         from handlers.locks import VALID_LOCKS
@@ -129,9 +130,8 @@ async def settings_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         if row:
             buttons.append(row)
         buttons.append([InlineKeyboardButton("« Back", callback_data=f"cfg:{chat_id}:main")])
-        await query.edit_message_text(
+        await callback_query.edit_message_text(
             "🔒 <b>Content Locks</b>\n\nTap to toggle:",
-            parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup(buttons),
         )
 
@@ -146,7 +146,7 @@ async def settings_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             f"Log destination: {dest}\n\n"
             "Change with: <code>/setlogchannel @channel</code>"
         )
-        await query.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
+        await callback_query.edit_message_text(text, reply_markup=kb)
 
     elif section == "autodelete":
         kb = InlineKeyboardMarkup([
@@ -161,7 +161,7 @@ async def settings_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             "Change with: <code>/setcmddelay &lt;seconds&gt;</code>\n"
             "<code>/setediteddelay &lt;seconds&gt;</code>"
         )
-        await query.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
+        await callback_query.edit_message_text(text, reply_markup=kb)
 
     elif section.startswith("toggle:"):
         field = section.split(":", 1)[1]
@@ -181,7 +181,6 @@ async def settings_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 settings = await get_group_settings(session, chat_id)
                 new_val = not getattr(settings, db_field)
                 await update_group_settings(session, chat_id, **{db_field: new_val})
-            # Re-open the parent section
             parent_map = {
                 "welcome": "welcome", "antispam": "antispam",
                 "antilink": "antispam", "antiforward": "antispam",
@@ -189,9 +188,8 @@ async def settings_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 "delete_join_msg": "autodelete", "delete_left_msg": "autodelete",
             }
             parent = parent_map.get(field, "main")
-            # Fake the data and re-call
-            query.data = f"cfg:{chat_id}:{parent}"
-            await settings_callback(update, context)
+            callback_query.data = f"cfg:{chat_id}:{parent}"
+            await settings_callback(client, callback_query)
 
     elif section.startswith("togglelock:"):
         lt = section.split(":", 1)[1]
@@ -204,141 +202,152 @@ async def settings_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             else:
                 locked.add(lt)
             await update_group_settings(session, chat_id, locked_types=",".join(locked))
-        query.data = f"cfg:{chat_id}:locks"
-        await settings_callback(update, context)
+        callback_query.data = f"cfg:{chat_id}:locks"
+        await settings_callback(client, callback_query)
 
 
-# ── Text-based settings commands ─────────────────────────────────────────────
-
+@handle_errors
 @group_admin_only
 @group_only
-async def cmd_setrules(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    text = " ".join(context.args) if context.args else None
+async def cmd_setrules(client: Client, message: Message) -> None:
+    args = message.command[1:] if message.command else []
+    text = " ".join(args) if args else None
     if not text:
-        await _auto(update, "❌ Usage: /setrules <your rules text>")
+        await _auto(message, "❌ Usage: /setrules <your rules text>")
         return
     async with AsyncSessionLocal() as session:
-        await update_group_settings(session, update.effective_chat.id, rules=text)
-    await _auto(update, "✅ Group rules updated.")
+        await update_group_settings(session, message.chat.id, rules=text)
+    await _auto(message, "✅ Group rules updated.")
 
 
+@handle_errors
 @group_admin_only
 @group_only
-async def cmd_rules(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def cmd_rules(client: Client, message: Message) -> None:
     async with AsyncSessionLocal() as session:
-        settings = await get_group_settings(session, update.effective_chat.id)
+        settings = await get_group_settings(session, message.chat.id)
     text = settings.rules or "No rules have been set. Use /setrules to add them."
-    msg = await update.effective_message.reply_text(
-        f"📜 <b>Group Rules</b>\n\n{text}", parse_mode="HTML"
-    )
-    asyncio.create_task(auto_delete(update.effective_message, 3))
+    msg = await message.reply(f"📜 <b>Group Rules</b>\n\n{text}")
+    asyncio.create_task(auto_delete(message, 3))
 
 
+@handle_errors
 @group_admin_only
 @group_only
-async def cmd_setwelcome(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    text = " ".join(context.args) if context.args else None
+async def cmd_setwelcome(client: Client, message: Message) -> None:
+    args = message.command[1:] if message.command else []
+    text = " ".join(args) if args else None
     if not text:
-        await _auto(update, "❌ Usage: /setwelcome <text>\nVariables: {mention} {name} {group}")
+        await _auto(message, "❌ Usage: /setwelcome <text>\nVariables: {mention} {name} {group}")
         return
     async with AsyncSessionLocal() as session:
-        await update_group_settings(session, update.effective_chat.id, welcome_text=text)
-    await _auto(update, "✅ Welcome message updated.")
+        await update_group_settings(session, message.chat.id, welcome_text=text)
+    await _auto(message, "✅ Welcome message updated.")
 
 
+@handle_errors
 @group_admin_only
 @group_only
-async def cmd_setwarnlimit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not context.args or not context.args[0].isdigit():
-        await _auto(update, "❌ Usage: /setwarnlimit <number>")
+async def cmd_setwarnlimit(client: Client, message: Message) -> None:
+    args = message.command[1:] if message.command else []
+    if not args or not args[0].isdigit():
+        await _auto(message, "❌ Usage: /setwarnlimit <number>")
         return
-    val = max(1, int(context.args[0]))
+    val = max(1, int(args[0]))
     async with AsyncSessionLocal() as session:
-        await update_group_settings(session, update.effective_chat.id, warn_limit=val)
-    await _auto(update, f"✅ Warn limit set to <b>{val}</b>.")
+        await update_group_settings(session, message.chat.id, warn_limit=val)
+    await _auto(message, f"✅ Warn limit set to <b>{val}</b>.")
 
 
+@handle_errors
 @group_admin_only
 @group_only
-async def cmd_setwarnaction(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def cmd_setwarnaction(client: Client, message: Message) -> None:
     valid = ("mute", "kick", "ban")
-    if not context.args or context.args[0].lower() not in valid:
-        await _auto(update, "❌ Usage: /setwarnaction mute|kick|ban")
+    args = message.command[1:] if message.command else []
+    if not args or args[0].lower() not in valid:
+        await _auto(message, "❌ Usage: /setwarnaction mute|kick|ban")
         return
-    val = context.args[0].lower()
+    val = args[0].lower()
     async with AsyncSessionLocal() as session:
-        await update_group_settings(session, update.effective_chat.id, warn_action=val)
-    await _auto(update, f"✅ Warn action set to <b>{val}</b>.")
+        await update_group_settings(session, message.chat.id, warn_action=val)
+    await _auto(message, f"✅ Warn action set to <b>{val}</b>.")
 
 
+@handle_errors
 @group_admin_only
 @group_only
-async def cmd_setprefix(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not context.args:
-        await _auto(update, "❌ Usage: /setprefix <prefix>  (e.g. . or !)")
+async def cmd_setprefix(client: Client, message: Message) -> None:
+    args = message.command[1:] if message.command else []
+    if not args:
+        await _auto(message, "❌ Usage: /setprefix <prefix>  (e.g. . or !)")
         return
-    prefix = context.args[0][:3]
+    prefix = args[0][:3]
     async with AsyncSessionLocal() as session:
-        await update_group_settings(session, update.effective_chat.id, prefix=prefix)
-    await _auto(update, f"✅ Command prefix set to <code>{prefix}</code>.")
+        await update_group_settings(session, message.chat.id, prefix=prefix)
+    await _auto(message, f"✅ Command prefix set to <code>{prefix}</code>.")
 
 
+@handle_errors
 @group_admin_only
 @group_only
-async def cmd_setlogchannel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not context.args:
-        await _auto(update, "❌ Usage: /setlogchannel @channel or channel_id")
+async def cmd_setlogchannel(client: Client, message: Message) -> None:
+    args = message.command[1:] if message.command else []
+    if not args:
+        await _auto(message, "❌ Usage: /setlogchannel @channel or channel_id")
         return
-    arg = context.args[0]
+    arg = args[0]
     try:
         if arg.lstrip("-").isdigit():
             channel_id = int(arg)
         else:
-            chat = await context.bot.get_chat(arg)
+            chat = await client.get_chat(arg)
             channel_id = chat.id
         async with AsyncSessionLocal() as session:
-            await update_group_settings(session, update.effective_chat.id, log_channel_id=channel_id)
-        await _auto(update, f"✅ Log channel set to <code>{channel_id}</code>.")
+            await update_group_settings(session, message.chat.id, log_channel_id=channel_id)
+        await _auto(message, f"✅ Log channel set to <code>{channel_id}</code>.")
     except Exception as e:
-        await _auto(update, f"❌ Could not resolve channel: {e}")
+        await _auto(message, f"❌ Could not resolve channel: {e}")
 
 
+@handle_errors
 @group_admin_only
 @group_only
-async def cmd_setcmddelay(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not context.args or not context.args[0].isdigit():
-        await _auto(update, "❌ Usage: /setcmddelay <seconds>")
+async def cmd_setcmddelay(client: Client, message: Message) -> None:
+    args = message.command[1:] if message.command else []
+    if not args or not args[0].isdigit():
+        await _auto(message, "❌ Usage: /setcmddelay <seconds>")
         return
-    val = int(context.args[0])
+    val = int(args[0])
     async with AsyncSessionLocal() as session:
-        await update_group_settings(session, update.effective_chat.id, delete_cmd_delay=val)
-    await _auto(update, f"✅ Command/bot/join/left message delete delay set to <b>{val}s</b>.")
+        await update_group_settings(session, message.chat.id, delete_cmd_delay=val)
+    await _auto(message, f"✅ Command/bot message delete delay set to <b>{val}s</b>.")
 
 
+@handle_errors
 @group_admin_only
 @group_only
-async def cmd_setediteddelay(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not context.args or not context.args[0].isdigit():
-        await _auto(update, "❌ Usage: /setediteddelay <seconds>  (0 = disabled)")
+async def cmd_setediteddelay(client: Client, message: Message) -> None:
+    args = message.command[1:] if message.command else []
+    if not args or not args[0].isdigit():
+        await _auto(message, "❌ Usage: /setediteddelay <seconds>  (0 = disabled)")
         return
-    val = int(context.args[0])
+    val = int(args[0])
     async with AsyncSessionLocal() as session:
-        await update_group_settings(session, update.effective_chat.id, delete_edited_delay=val)
+        await update_group_settings(session, message.chat.id, delete_edited_delay=val)
     status = f"<b>{val}s</b>" if val > 0 else "<b>disabled</b>"
-    await _auto(update, f"✅ Edited message delete delay set to {status}.")
+    await _auto(message, f"✅ Edited message delete delay set to {status}.")
 
 
-def register(application) -> None:
-    application.add_handler(CommandHandler("settings",       cmd_settings))
-    application.add_handler(CommandHandler("rules",          cmd_rules))
-    application.add_handler(CommandHandler("setrules",       cmd_setrules))
-    application.add_handler(CommandHandler("setwelcome",     cmd_setwelcome))
-    application.add_handler(CommandHandler("setwarnlimit",   cmd_setwarnlimit))
-    application.add_handler(CommandHandler("setwarnaction",  cmd_setwarnaction))
-    application.add_handler(CommandHandler("setprefix",      cmd_setprefix))
-    application.add_handler(CommandHandler("setlogchannel",  cmd_setlogchannel))
-    application.add_handler(CommandHandler("setcmddelay",    cmd_setcmddelay))
-    application.add_handler(CommandHandler("setediteddelay", cmd_setediteddelay))
-    application.add_handler(
-        CallbackQueryHandler(settings_callback, pattern=r"^cfg:")
-    )
+def register(app: Client) -> None:
+    app.add_handler(MessageHandler(cmd_settings,      filters.command("settings")       & filters.group))
+    app.add_handler(MessageHandler(cmd_rules,          filters.command("rules")          & filters.group))
+    app.add_handler(MessageHandler(cmd_setrules,       filters.command("setrules")       & filters.group))
+    app.add_handler(MessageHandler(cmd_setwelcome,     filters.command("setwelcome")     & filters.group))
+    app.add_handler(MessageHandler(cmd_setwarnlimit,   filters.command("setwarnlimit")   & filters.group))
+    app.add_handler(MessageHandler(cmd_setwarnaction,  filters.command("setwarnaction")  & filters.group))
+    app.add_handler(MessageHandler(cmd_setprefix,      filters.command("setprefix")      & filters.group))
+    app.add_handler(MessageHandler(cmd_setlogchannel,  filters.command("setlogchannel")  & filters.group))
+    app.add_handler(MessageHandler(cmd_setcmddelay,    filters.command("setcmddelay")    & filters.group))
+    app.add_handler(MessageHandler(cmd_setediteddelay, filters.command("setediteddelay") & filters.group))
+    app.add_handler(CallbackQueryHandler(settings_callback, filters.regex(r"^cfg:")))
