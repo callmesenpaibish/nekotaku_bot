@@ -58,8 +58,32 @@ def register_all_handlers(app: Client) -> None:
     logger.info("All handlers registered.")
 
 
+# ── Minimal health-check server (required for Render Web Service) ──────────────
+async def _handle_health(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+    await reader.read(1024)
+    writer.write(
+        b"HTTP/1.1 200 OK\r\n"
+        b"Content-Type: text/plain\r\n"
+        b"Content-Length: 2\r\n"
+        b"\r\n"
+        b"OK"
+    )
+    await writer.drain()
+    writer.close()
+
+
+async def _start_health_server() -> None:
+    port = int(os.getenv("PORT", 8080))
+    server = await asyncio.start_server(_handle_health, "0.0.0.0", port)
+    logger.info("Health-check server listening on port %d", port)
+    async with server:
+        await server.serve_forever()
+
+
 async def main() -> None:
     os.makedirs("data", exist_ok=True)
+
+    asyncio.create_task(_start_health_server())
 
     app = build_client()
     register_all_handlers(app)
