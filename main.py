@@ -1,6 +1,5 @@
 """main.py — Entry point. Builds the Application and starts the bot."""
 
-import asyncio
 import logging
 import os
 
@@ -88,7 +87,7 @@ async def post_init(app: Application) -> None:
         pass  # Owner may not have started the bot in DM yet
 
 
-async def main() -> None:
+def main() -> None:
     app = build_application()
     register_all_handlers(app)
 
@@ -98,7 +97,7 @@ async def main() -> None:
     if cfg.WEBHOOK_URL:
         # ── Webhook mode ────────────────────────────────────────────────────
         logger.info("Starting in webhook mode: %s", cfg.WEBHOOK_URL)
-        await app.run_webhook(
+        app.run_webhook(
             listen="0.0.0.0",
             port=cfg.WEBHOOK_PORT,
             webhook_url=cfg.WEBHOOK_URL,
@@ -107,7 +106,7 @@ async def main() -> None:
     else:
         # ── Long polling mode ───────────────────────────────────────────────
         logger.info("Starting in polling mode…")
-        await app.run_polling(
+        app.run_polling(
             drop_pending_updates=True,
             allowed_updates=[
                 "message",
@@ -122,4 +121,4 @@ async def main() -> None:
 if __name__ == "__main__":
     # Ensure data directory exists for SQLite
     os.makedirs("data", exist_ok=True)
-    asyncio.run(main())
+    main()
