@@ -289,7 +289,17 @@ async def cmd_settitle(client: Client, message: Message) -> None:
         )
         await _reply_auto(message, f"✅ Title for {mention_html(target)} set to <b>{title}</b>.")
     except RPCError as e:
-        await _reply_auto(message, f"❌ Failed to set title: {e}")
+        err = str(e)
+        if "CHAT_ADMIN_REQUIRED" in err or "USER_NOT_PARTICIPANT" in err:
+            await _reply_auto(
+                message,
+                "❌ Failed: the bot needs the <b>Add Admins</b> right to set titles.\n"
+                "Go to group info → Administrators → Bot → enable Add Admins.",
+            )
+        elif "ADMIN_RANK_EMOJI_NOT_ALLOWED" in err:
+            await _reply_auto(message, "❌ Title cannot contain emoji characters.")
+        else:
+            await _reply_auto(message, f"❌ Failed to set title: {e}")
 
 
 # ─── /demote ──────────────────────────────────────────────────────────────────

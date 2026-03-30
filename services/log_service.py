@@ -1,7 +1,7 @@
 """services/log_service.py — Send structured moderation logs to a channel/group."""
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 from pyrogram import Client
 
@@ -79,7 +79,8 @@ async def send_log(
         return
 
     # ── Build the log message ─────────────────────────────────────────────────
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    IST = timezone(timedelta(hours=5, minutes=30))
+    now = datetime.now(IST).strftime("%Y-%m-%d %H:%M IST")
     target_str = f"@{target_username}" if target_username else f"ID:{target_user_id}"
     admin_str = (
         "🤖 Auto" if auto

@@ -1,15 +1,21 @@
 """services/moderation_service.py — Core moderation actions via Pyrogram."""
 
+import asyncio
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional
-from pyrogram import Client
-from pyrogram.types import User, ChatPermissions, ChatPrivileges
+
+from pyrogram import Client, raw
+from pyrogram.types import User, ChatPermissions
 from pyrogram.errors import RPCError
 
 from database.engine import AsyncSessionLocal
 from database.repository import add_infraction
 from services.log_service import send_log
 
+logger = logging.getLogger(__name__)
+
+# ── Permission sets ────────────────────────────────────────────────────────────
 _MUTED_PERMS = ChatPermissions(
     can_send_messages=False,
     can_send_media_messages=False,
@@ -28,12 +34,120 @@ _FULL_PERMS = ChatPermissions(
 )
 
 
-def _until(duration: Optional[int]) -> Optional[datetime]:
-    """Return UTC datetime for the until_date, or None for permanent."""
+def _until_ts(duration: Optional[int]) -> int:
+    """Return Unix timestamp for until_date. 0 = permanent (Telegram standard)."""
     if not duration:
-        return None
-    return datetime.now(timezone.utc) + timedelta(seconds=duration)
+        return 0
+    return int((datetime.now(timezone.utc) + timedelta(seconds=duration)).timestamp())
 
+
+async def _raw_mute(client: Client, chat_id: int, user_id: int, until_ts: int) -> None:
+    """Apply mute restriction via raw MTProto EditBanned (guarantees correct until_date)."""
+    await client.invoke(
+        raw.functions.channels.EditBanned(
+            channel=await client.resolve_peer(chat_id),
+            participant=await client.resolve_peer(user_id),
+            banned_rights=raw.types.ChatBannedRights(
+                until_date=until_ts,
+                send_messages=True,
+                send_media=True,
+                send_stickers=True,
+                send_gifs=True,
+                send_games=True,
+                send_inline=True,
+                embed_links=True,
+                send_polls=True,
+            ),
+        )
+    )
+
+
+async def _raw_ban(client: Client, chat_id: int, user_id: int, until_ts: int) -> None:
+    """Apply full ban via raw MTProto EditBanned (view_messages=True = full ban)."""
+    await client.invoke(
+        raw.functions.channels.EditBanned(
+            channel=await client.resolve_peer(chat_id),
+            participant=await client.resolve_peer(user_id),
+            banned_rights=raw.types.ChatBannedRights(
+                until_date=until_ts,
+                view_messages=True,
+                send_messages=True,
+                send_media=True,
+                send_stickers=True,
+                send_gifs=True,
+                send_games=True,
+                send_inline=True,
+                embed_links=True,
+                send_polls=True,
+                change_info=True,
+                invite_users=True,
+                pin_messages=True,
+            ),
+        )
+    )
+
+
+async def _auto_unmute_task(
+    client: Client,
+    chat_id: int,
+    user_id: int,
+    duration: int,
+    display_name: str,
+) -> None:
+    """Wait for duration then explicitly unmute the user and notify the group."""
+    await asyncio.sleep(duration)
+    try:
+        await client.restrict_chat_member(
+            chat_id=chat_id,
+            user_id=user_id,
+            permissions=_FULL_PERMS,
+        )
+        await send_log(
+            client, chat_id, "auto_unmute",
+            target_user_id=user_id,
+            extra=f"Timed mute expired after {duration}s",
+            auto=True,
+        )
+        try:
+            await client.send_message(
+                chat_id=chat_id,
+                text=f"🔊 <a href='tg://user?id={user_id}'>{display_name}</a> has been automatically unmuted.",
+            )
+        except Exception:
+            pass
+    except Exception as e:
+        logger.warning("Auto-unmute failed for user %d in chat %d: %s", user_id, chat_id, e)
+
+
+async def _auto_unban_task(
+    client: Client,
+    chat_id: int,
+    user_id: int,
+    duration: int,
+    display_name: str,
+) -> None:
+    """Wait for duration then explicitly unban the user and notify the group."""
+    await asyncio.sleep(duration)
+    try:
+        await client.unban_chat_member(chat_id=chat_id, user_id=user_id)
+        await send_log(
+            client, chat_id, "auto_unban",
+            target_user_id=user_id,
+            extra=f"Timed ban expired after {duration}s",
+            auto=True,
+        )
+        try:
+            await client.send_message(
+                chat_id=chat_id,
+                text=f"🔓 <a href='tg://user?id={user_id}'>{display_name}</a> has been automatically unbanned.",
+            )
+        except Exception:
+            pass
+    except Exception as e:
+        logger.warning("Auto-unban failed for user %d in chat %d: %s", user_id, chat_id, e)
+
+
+# ── Public API ─────────────────────────────────────────────────────────────────
 
 async def mute_user(
     client: Client,
@@ -44,23 +158,34 @@ async def mute_user(
     duration: Optional[int] = None,
     auto: bool = False,
 ) -> bool:
-    until = _until(duration)
+    ts = _until_ts(duration)
     try:
-        if until:
-            await client.restrict_chat_member(
-                chat_id=chat_id,
-                user_id=user.id,
-                permissions=_MUTED_PERMS,
-                until_date=until,
-            )
-        else:
-            await client.restrict_chat_member(
-                chat_id=chat_id,
-                user_id=user.id,
-                permissions=_MUTED_PERMS,
-            )
-    except RPCError as e:
+        await _raw_mute(client, chat_id, user.id, ts)
+    except RPCError:
+        # Fall back to high-level API
+        try:
+            if ts:
+                await client.restrict_chat_member(
+                    chat_id=chat_id,
+                    user_id=user.id,
+                    permissions=_MUTED_PERMS,
+                    until_date=datetime.fromtimestamp(ts, tz=timezone.utc),
+                )
+            else:
+                await client.restrict_chat_member(
+                    chat_id=chat_id,
+                    user_id=user.id,
+                    permissions=_MUTED_PERMS,
+                )
+        except RPCError:
+            return False
+    except Exception:
         return False
+
+    # Schedule explicit auto-unmute so it's guaranteed
+    if duration:
+        display = user.first_name or str(user.id)
+        asyncio.create_task(_auto_unmute_task(client, chat_id, user.id, duration, display))
 
     async with AsyncSessionLocal() as session:
         await add_infraction(
@@ -149,21 +274,28 @@ async def ban_user(
     duration: Optional[int] = None,
     auto: bool = False,
 ) -> bool:
-    until = _until(duration)
+    ts = _until_ts(duration)
     try:
-        if until:
-            await client.ban_chat_member(
-                chat_id=chat_id,
-                user_id=user.id,
-                until_date=until,
-            )
-        else:
-            await client.ban_chat_member(
-                chat_id=chat_id,
-                user_id=user.id,
-            )
+        await _raw_ban(client, chat_id, user.id, ts)
     except RPCError:
+        try:
+            if ts:
+                await client.ban_chat_member(
+                    chat_id=chat_id,
+                    user_id=user.id,
+                    until_date=datetime.fromtimestamp(ts, tz=timezone.utc),
+                )
+            else:
+                await client.ban_chat_member(chat_id=chat_id, user_id=user.id)
+        except RPCError:
+            return False
+    except Exception:
         return False
+
+    # Schedule explicit auto-unban
+    if duration:
+        display = user.first_name or str(user.id)
+        asyncio.create_task(_auto_unban_task(client, chat_id, user.id, duration, display))
 
     async with AsyncSessionLocal() as session:
         await add_infraction(
@@ -235,10 +367,7 @@ async def restrict_user_content(
 
 
 def _build_permissions(locked_types: set, base_allow: bool = True) -> ChatPermissions:
-    """
-    Build a ChatPermissions object from a set of locked content type names.
-    base_allow=True means start with all allowed and disable locked types.
-    """
+    """Build a ChatPermissions object from a set of locked content type names."""
     media_types = {"image", "video", "audio", "document"}
     no_media = bool(locked_types & media_types)
     no_other = "sticker" in locked_types

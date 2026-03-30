@@ -346,20 +346,37 @@ async def cmd_setwelcome(client: Client, message: Message) -> None:
     caption = " ".join(args).strip() if args else None
 
     if reply:
-        # Store the replied message as the welcome template
-        async with AsyncSessionLocal() as session:
-            await update_group_settings(
-                session, message.chat.id,
-                welcome_msg_id=reply.id,
-                welcome_msg_chat_id=message.chat.id,
-                welcome_text=caption or None,
-            )
-        media_type = "media message" if (reply.photo or reply.video or reply.animation or reply.document or reply.sticker) else "text message"
-        await _auto(
-            message,
-            f"✅ Welcome template set to the replied {media_type}."
-            + (f"\nCaption: <code>{caption}</code>" if caption else ""),
+        has_media = bool(
+            reply.photo or reply.video or reply.animation
+            or reply.document or reply.sticker or reply.audio
+            or reply.voice or reply.video_note
         )
+        async with AsyncSessionLocal() as session:
+            if has_media:
+                # Media template — copy_message supports captions
+                await update_group_settings(
+                    session, message.chat.id,
+                    welcome_msg_id=reply.id,
+                    welcome_msg_chat_id=message.chat.id,
+                    welcome_text=caption or None,
+                )
+                await _auto(
+                    message,
+                    "✅ Welcome media template saved."
+                    + (f"\nCaption: <code>{caption}</code>" if caption else "\n(No caption — media sent as-is)"),
+                )
+            else:
+                # Text message — copy_message ignores captions for text;
+                # use the provided caption (or original text) as plain text welcome
+                text_to_save = caption or reply.text or None
+                await update_group_settings(
+                    session, message.chat.id,
+                    welcome_text=text_to_save,
+                    welcome_msg_id=None,
+                    welcome_msg_chat_id=None,
+                )
+                preview = (text_to_save or "")[:200]
+                await _auto(message, f"✅ Welcome text saved:\n<code>{preview}</code>")
     elif caption:
         async with AsyncSessionLocal() as session:
             await update_group_settings(
