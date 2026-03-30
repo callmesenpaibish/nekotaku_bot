@@ -1,6 +1,7 @@
 """database/repository.py — All database queries (repository pattern)."""
 
 import json
+import time
 from typing import Optional
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,11 +11,30 @@ from database.models import (
 )
 import config as cfg
 
+# ── GroupSettings cache ───────────────────────────────────────────────────────
+# Avoids a DB round-trip on every message; invalidated on every write.
+_settings_cache: dict[int, tuple[GroupSettings, float]] = {}
+_SETTINGS_CACHE_TTL = 60  # seconds
+
+
+def _cache_settings(chat_id: int, settings: GroupSettings) -> None:
+    _settings_cache[chat_id] = (settings, time.monotonic() + _SETTINGS_CACHE_TTL)
+
+
+def invalidate_settings_cache(chat_id: int) -> None:
+    _settings_cache.pop(chat_id, None)
+
 
 # ── GroupSettings ─────────────────────────────────────────────────────────────
 
 async def get_group_settings(session: AsyncSession, chat_id: int) -> GroupSettings:
-    """Return group settings, creating defaults if not found."""
+    """Return group settings, creating defaults if not found. Uses a short cache."""
+    cached = _settings_cache.get(chat_id)
+    if cached is not None:
+        settings, expires_at = cached
+        if time.monotonic() < expires_at:
+            return settings
+
     result = await session.execute(
         select(GroupSettings).where(GroupSettings.chat_id == chat_id)
     )
@@ -32,15 +52,18 @@ async def get_group_settings(session: AsyncSession, chat_id: int) -> GroupSettin
         session.add(settings)
         await session.commit()
         await session.refresh(settings)
+    _cache_settings(chat_id, settings)
     return settings
 
 
 async def update_group_settings(session: AsyncSession, chat_id: int, **kwargs) -> None:
+    invalidate_settings_cache(chat_id)
     settings = await get_group_settings(session, chat_id)
     for key, value in kwargs.items():
         if hasattr(settings, key):
             setattr(settings, key, value)
     await session.commit()
+    invalidate_settings_cache(chat_id)  # invalidate again after write
 
 
 # ── Warnings ──────────────────────────────────────────────────────────────────

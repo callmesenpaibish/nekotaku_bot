@@ -1,10 +1,21 @@
 """utils/helpers.py — Shared helper utilities."""
 
 import asyncio
+import time
 from typing import Optional
 from telegram import Message, Update, User, Chat
 from telegram.ext import ContextTypes
 from telegram.error import BadRequest, TelegramError
+
+# ── Admin status cache ────────────────────────────────────────────────────────
+# Key: (chat_id, user_id) → (is_admin: bool, expires_at: float)
+_admin_cache: dict[tuple[int, int], tuple[bool, float]] = {}
+_ADMIN_CACHE_TTL = 300  # seconds (5 minutes)
+
+
+def invalidate_admin_cache(chat_id: int, user_id: int) -> None:
+    """Call this after promoting/demoting a user to clear their cached status."""
+    _admin_cache.pop((chat_id, user_id), None)
 
 
 def mention_html(user: User) -> str:
@@ -41,12 +52,20 @@ async def auto_delete(message: Message, delay: int) -> None:
 
 
 async def is_admin(chat: Chat, user_id: int, context: ContextTypes.DEFAULT_TYPE) -> bool:
-    """Check if user_id is an admin in the given chat."""
+    """Check if user_id is an admin in the given chat, with a 5-minute cache."""
+    key = (chat.id, user_id)
+    cached = _admin_cache.get(key)
+    if cached is not None:
+        result, expires_at = cached
+        if time.monotonic() < expires_at:
+            return result
     try:
         member = await context.bot.get_chat_member(chat.id, user_id)
-        return member.status in ("administrator", "creator")
+        result = member.status in ("administrator", "creator")
     except TelegramError:
-        return False
+        result = False
+    _admin_cache[key] = (result, time.monotonic() + _ADMIN_CACHE_TTL)
+    return result
 
 
 def parse_command_args(text: str) -> list[str]:
