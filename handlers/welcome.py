@@ -14,77 +14,104 @@ from handlers.errors import handle_errors
 import config as cfg
 
 
-@handle_errors
-async def handle_member_update(client: Client, member: ChatMemberUpdated) -> None:
-    old_status = member.old_chat_member.status if member.old_chat_member else None
-    new_status = member.new_chat_member.status if member.new_chat_member else None
+async def _send_welcome(client: Client, chat_id: int, chat_title: str, user) -> None:
+    """Send the welcome message for a user. Shared by both join triggers."""
+    async with AsyncSessionLocal() as session:
+        settings = await get_group_settings(session, chat_id)
 
-    if new_status is None:
+    if not settings.welcome_enabled:
         return
 
-    user = member.new_chat_member.user
-    chat = member.chat
-
-    # New member joined
-    if new_status == ChatMemberStatus.MEMBER and old_status not in (
-        ChatMemberStatus.MEMBER, ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER
-    ):
-        async with AsyncSessionLocal() as session:
-            settings = await get_group_settings(session, chat.id)
-
-        if not settings.welcome_enabled:
-            return
-
-        # If a template message is stored, copy it; otherwise send text
-        if settings.welcome_msg_id and settings.welcome_msg_chat_id:
+    # ── Template message (reply-based, supports media) ────────────────────────
+    if settings.welcome_msg_id and settings.welcome_msg_chat_id:
+        caption = None
+        if settings.welcome_text:
             try:
-                await client.copy_message(
-                    chat_id=chat.id,
-                    from_chat_id=settings.welcome_msg_chat_id,
-                    message_id=settings.welcome_msg_id,
-                    caption=(settings.welcome_text or "").format(
-                        mention=mention_html(user),
-                        name=user.first_name,
-                        group=chat.title or "this group",
-                        id=user.id,
-                    ) if settings.welcome_text else None,
+                caption = settings.welcome_text.format(
+                    mention=mention_html(user),
+                    name=user.first_name,
+                    group=chat_title or "this group",
+                    id=user.id,
                 )
-                return
-            except RPCError:
-                pass  # Fall through to text welcome
+            except (KeyError, ValueError):
+                caption = settings.welcome_text
+        try:
+            await client.copy_message(
+                chat_id=chat_id,
+                from_chat_id=settings.welcome_msg_chat_id,
+                message_id=settings.welcome_msg_id,
+                caption=caption,
+            )
+            return
+        except RPCError:
+            pass  # Fall through to text welcome
 
-        welcome_text = settings.welcome_text or cfg.DEFAULT_WELCOME
+    # ── Plain text welcome ────────────────────────────────────────────────────
+    welcome_text = settings.welcome_text or cfg.DEFAULT_WELCOME
+    try:
         text = welcome_text.format(
             mention=mention_html(user),
             name=user.first_name,
-            group=chat.title or "this group",
+            group=chat_title or "this group",
             id=user.id,
         )
-        await client.send_message(chat_id=chat.id, text=text)
+    except (KeyError, ValueError):
+        text = welcome_text
+
+    await client.send_message(chat_id=chat_id, text=text)
 
 
 @handle_errors
-async def handle_service_messages(client: Client, message: Message) -> None:
+async def handle_new_members(client: Client, message: Message) -> None:
+    """
+    Handles new_chat_members service messages — fires reliably for all bots.
+    Sends the welcome message and optionally deletes the join service message.
+    """
     chat = message.chat
     async with AsyncSessionLocal() as session:
         settings = await get_group_settings(session, chat.id)
 
-    delay = settings.delete_cmd_delay
+    for user in (message.new_chat_members or []):
+        if user.is_bot:
+            continue
+        if settings.welcome_enabled:
+            await _send_welcome(client, chat.id, chat.title, user)
 
-    if message.new_chat_members and settings.delete_join_msg:
-        asyncio.create_task(auto_delete(message, delay))
-        return
+    if settings.delete_join_msg:
+        asyncio.create_task(auto_delete(message, settings.delete_cmd_delay))
 
-    if message.left_chat_member and settings.delete_left_msg:
-        asyncio.create_task(auto_delete(message, delay))
-        return
+
+@handle_errors
+async def handle_member_updated(client: Client, member: ChatMemberUpdated) -> None:
+    """
+    ChatMemberUpdatedHandler — fires when the bot is admin.
+    Avoids duplicate welcome if the join service message already fired it.
+    """
+    # We rely on handle_new_members for welcome; this handler is for future use
+    pass
+
+
+@handle_errors
+async def handle_left_member(client: Client, message: Message) -> None:
+    chat = message.chat
+    async with AsyncSessionLocal() as session:
+        settings = await get_group_settings(session, chat.id)
+
+    if settings.delete_left_msg:
+        asyncio.create_task(auto_delete(message, settings.delete_cmd_delay))
 
 
 def register(app: Client) -> None:
-    app.add_handler(ChatMemberUpdatedHandler(handle_member_update))
     app.add_handler(
         MessageHandler(
-            handle_service_messages,
-            filters.group & (filters.new_chat_members | filters.left_chat_member),
+            handle_new_members,
+            filters.group & filters.new_chat_members,
         )
     )
+    app.add_handler(
+        MessageHandler(
+            handle_left_member,
+            filters.group & filters.left_chat_member,
+        )
+    )
+    app.add_handler(ChatMemberUpdatedHandler(handle_member_updated))

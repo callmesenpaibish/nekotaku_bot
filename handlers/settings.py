@@ -214,6 +214,19 @@ async def cmd_settings(client: Client, message: Message) -> None:
 
 @handle_errors
 async def settings_callback(client: Client, callback_query: CallbackQuery) -> None:
+    # Only the group admin who opened the panel (or any admin) may interact with it
+    user = callback_query.from_user
+    chat = callback_query.message.chat
+    if not user or not chat:
+        await callback_query.answer("⛔ Cannot verify identity.", show_alert=True)
+        return
+
+    from utils.helpers import is_admin
+    from config import OWNER_ID
+    if user.id != OWNER_ID and not await is_admin(client, chat.id, user.id):
+        await callback_query.answer("⛔ Only group admins can change settings.", show_alert=True)
+        return
+
     await callback_query.answer()
     data = callback_query.data
 
