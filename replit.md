@@ -34,7 +34,7 @@ handlers/            # Telegram command/message handlers grouped by feature
   welcome.py         # Welcome messages and service message cleanup
   settings.py        # Interactive inline settings menu + all /set* commands
   locks.py           # Content type lock/unlock commands
-  admin_tools.py     # Promote, demote, pin, adminlist
+  admin_tools.py     # Promote (with rights selector), demote, editrights, settitle, pin, adminlist
   owner.py           # Owner-only admin management panel
   help.py            # /start and /help with inline help sections
   errors.py          # handle_errors() decorator for all handlers

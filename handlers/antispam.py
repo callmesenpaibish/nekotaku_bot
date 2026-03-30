@@ -216,7 +216,7 @@ def register(app: Client) -> None:
                 "antispam","antilink","antiflood","floodrate","floodwindow",
                 "settings","rules","setrules","setwelcome","setwarnlimit",
                 "setwarnaction","setprefix","setlogchannel","setcmddelay",
-                "setediteddelay","promote","demote","pin","unpin","adminlist",
+                "setediteddelay","promote","demote","editrights","settitle","pin","unpin","adminlist",
                 "adminpanel","addadmin","removeadmin","listadmins","start","help",
             ]),
         ),

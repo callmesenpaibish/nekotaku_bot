@@ -38,18 +38,33 @@ async def _render_welcome(client: Client, cq: CallbackQuery, chat_id: int) -> No
         s = await get_group_settings(session, chat_id)
 
     has_media = bool(s.welcome_msg_id)
-    text_preview = (s.welcome_text or cfg.DEFAULT_WELCOME)[:120]
+    has_custom_text = bool(s.welcome_text)
+
+    if has_media:
+        template_line = f"📎 Media template set (msg #{s.welcome_msg_id})"
+        caption_line = (
+            f"Caption: <code>{s.welcome_text[:80]}</code>"
+            if has_custom_text else "No caption — media sent as-is"
+        )
+        text_block = f"{template_line}\n{caption_line}"
+    elif has_custom_text:
+        template_line = "📝 Custom text"
+        text_block = f"{template_line}\n<code>{s.welcome_text[:120]}</code>"
+    else:
+        template_line = "⚙️ Default (not customised)"
+        text_block = f"{template_line}\n<code>{cfg.DEFAULT_WELCOME[:120]}</code>"
+
     kb = InlineKeyboardMarkup([
         [toggle_button("Welcome Messages", s.welcome_enabled, f"cfg:{chat_id}:toggle:welcome_enabled")],
         [InlineKeyboardButton("« Back", callback_data=f"cfg:{chat_id}:main")],
     ])
     body = (
         f"👋 <b>Welcome Settings</b>\n\n"
-        f"Status: {'✅ Enabled' if s.welcome_enabled else '❌ Disabled'}\n"
-        f"Template: {'📎 Media message set' if has_media else '📝 Text only'}\n\n"
-        f"<b>Current text:</b>\n<code>{text_preview}</code>\n\n"
-        "To change: reply to any message (with or without media) and use:\n"
-        "<code>/setwelcome [optional caption]</code>\n\n"
+        f"Status: {'✅ Enabled' if s.welcome_enabled else '❌ Disabled'}\n\n"
+        f"<b>Current template:</b>\n{text_block}\n\n"
+        "To change: reply to any message (with or without media):\n"
+        "<code>/setwelcome [optional caption]</code>\n"
+        "Or text only: <code>/setwelcome Hello {mention}!</code>\n\n"
         "Variables: <code>{mention}</code> <code>{name}</code> <code>{group}</code>"
     )
     await cq.edit_message_text(body, reply_markup=kb)
@@ -130,10 +145,15 @@ async def _render_logging(client: Client, cq: CallbackQuery, chat_id: int) -> No
         [toggle_button("Log Cleanup Actions", s.log_cleanup, f"cfg:{chat_id}:toggle:log_cleanup")],
         [InlineKeyboardButton("« Back", callback_data=f"cfg:{chat_id}:main")],
     ])
-    dest = f"<code>{s.log_channel_id}</code>" if s.log_channel_id else "Not set"
+    dest = f"<code>{s.log_channel_id}</code>" if s.log_channel_id else "❌ Not set"
     await cq.edit_message_text(
-        f"📋 <b>Logging Settings</b>\n\nLog destination: {dest}\n\n"
-        "Change with: <code>/setlogchannel @channel</code>",
+        f"📋 <b>Logging Settings</b>\n\n"
+        f"Log destination: {dest}\n\n"
+        "Change: <code>/setlogchannel @channelname</code>\n\n"
+        "<b>⚠️ Important — for logs to work:</b>\n"
+        "1. Add this bot as <b>admin</b> to your log channel\n"
+        "2. Use the channel's <b>@username</b> when setting it up\n"
+        "   <i>Numeric IDs only work after the bot has seen the channel</i>",
         reply_markup=kb,
     )
 
@@ -408,18 +428,25 @@ async def cmd_setprefix(client: Client, message: Message) -> None:
 async def cmd_setlogchannel(client: Client, message: Message) -> None:
     args = message.command[1:] if message.command else []
     if not args:
-        await _auto(message, "❌ Usage: /setlogchannel @channel or channel_id")
+        await _auto(message, "❌ Usage: /setlogchannel @channelname\nTip: use the channel's @username, not a numeric ID.")
         return
     arg = args[0]
     try:
         if arg.lstrip("-").isdigit():
             channel_id = int(arg)
+            note = (
+                "\n\n⚠️ Numeric IDs only work if the bot has already "
+                "seen this channel in the current session. "
+                "If logs don't arrive, use the channel's <b>@username</b> instead, "
+                "or forward any message from the channel to the bot in private."
+            )
         else:
             chat = await client.get_chat(arg)
             channel_id = chat.id
+            note = "\n\nMake sure this bot is an <b>admin</b> of that channel so it can post logs."
         async with AsyncSessionLocal() as session:
             await update_group_settings(session, message.chat.id, log_channel_id=channel_id)
-        await _auto(message, f"✅ Log channel set to <code>{channel_id}</code>.")
+        await _auto(message, f"✅ Log channel set to <code>{channel_id}</code>.{note}", delay=12)
     except RPCError as e:
         await _auto(message, f"❌ Could not resolve channel: {e}")
 

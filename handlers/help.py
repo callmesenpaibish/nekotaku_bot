@@ -66,13 +66,16 @@ HELP_SECTIONS = {
     ),
     "admin": (
         "👮 <b>Admin Tools</b>\n\n"
-        "<code>/promote @user</code> — Promote user to admin\n"
+        "<code>/promote @user</code> — Promote user (pick rights via buttons)\n"
         "<code>/demote @user</code> — Demote admin\n"
+        "<code>/editrights @user</code> — Edit an existing admin's rights\n"
+        "<code>/settitle @user Title</code> — Set admin's custom title/tag\n"
+        "  <i>Example:</i> <code>/settitle @john Helper</code> (max 16 chars)\n"
         "<code>/pin [silent]</code> (reply) — Pin a message\n"
         "<code>/unpin</code> — Unpin pinned message\n"
+        "<code>/adminlist</code> — List all group admins\n"
         "<code>/rules</code> — Show group rules\n"
-        "<code>/stats @user</code> — View user infraction history\n"
-        "<code>/adminlist</code> — List all group admins"
+        "<code>/stats @user</code> — View user infraction history"
     ),
     "owner": (
         "👑 <b>Owner Tools</b>\n\n"
