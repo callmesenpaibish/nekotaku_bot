@@ -110,6 +110,10 @@ async def _handle_edited(client: Client, message: Message) -> None:
     if not chat:
         return
 
+    # Reactions trigger an "edited" event with no edit_date — skip them
+    if not message.edit_date:
+        return
+
     async with AsyncSessionLocal() as session:
         settings = await get_group_settings(session, chat.id)
 
